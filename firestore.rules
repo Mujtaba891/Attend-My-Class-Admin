@@ -1,0 +1,109 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isBootstrappedAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == "mujtabaalam010@gmail.com"
+      );
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        isBootstrappedAdmin() ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Admin collection
+    match /admins/{adminId} {
+      allow read: if true;
+      allow write: if isSignedIn() || isAdmin();
+    }
+
+    // Students collection
+    match /students/{studentId} {
+      allow read: if true;
+      allow create, update: if isSignedIn() || isAdmin() || isValidId(studentId);
+      allow delete: if isAdmin() || isSignedIn();
+    }
+
+    // Users collection (fallback / mirror for auth profiles)
+    match /users/{userId} {
+      allow read: if true;
+      allow write: if isSignedIn() || isAdmin();
+    }
+
+    // Usernames collection
+    match /usernames/{username} {
+      allow read: if true;
+      allow create, update: if true;
+    }
+
+    // Classes collection
+    match /classes/{classId} {
+      allow read: if true;
+      allow write: if isSignedIn() || isAdmin();
+    }
+
+    // Attendance sessions
+    match /attendanceSessions/{sessionId} {
+      allow read: if true;
+      allow write: if isSignedIn() || isAdmin() || isValidId(sessionId);
+    }
+
+    match /sessions/{sessionId} {
+      allow read: if true;
+      allow write: if isSignedIn() || isAdmin() || isValidId(sessionId);
+    }
+
+    // Attendance records
+    match /attendance/{recordId} {
+      allow read: if true;
+      allow create, update: if isSignedIn() || isAdmin() || isValidId(recordId);
+      allow delete: if isAdmin() || isSignedIn();
+    }
+
+    // Correction requests
+    match /correctionRequests/{requestId} {
+      allow read: if true;
+      allow create, update: if isSignedIn() || isAdmin() || isValidId(requestId);
+      allow delete: if isAdmin() || isSignedIn();
+    }
+
+    // Activity logs
+    match /activityLogs/{logId} {
+      allow read: if true;
+      allow create: if isSignedIn() || isAdmin() || isValidId(logId);
+      allow update, delete: if false; // Immutable audit trail
+    }
+
+    // Notifications
+    match /notifications/{notificationId} {
+      allow read: if true;
+      allow create, update: if isSignedIn() || isAdmin() || isValidId(notificationId);
+      allow delete: if isAdmin() || isSignedIn();
+    }
+
+    // CR Delegations
+    match /crDelegations/{delegationId} {
+      allow read: if true;
+      allow create, update: if isSignedIn() || isAdmin() || isValidId(delegationId);
+      allow delete: if isAdmin() || isSignedIn();
+    }
+  }
+}

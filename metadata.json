@@ -1,0 +1,6 @@
+{
+  "name": "Attend My Class",
+  "description": "College Attendance Management Portal with live QR sessions, real-time board, student & device security, reports, and correction approvals.",
+  "requestFramePermissions": ["notifications"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

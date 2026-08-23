@@ -1,0 +1,202 @@
+{
+  "entities": {
+    "Admin": {
+      "title": "Admin",
+      "description": "Administrative user record for managing Geology attendance (Admin, Teacher, CR)",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "maxLength": 150 },
+        "name": { "type": "string", "maxLength": 100 },
+        "role": { "type": "string", "enum": ["admin", "teacher", "cr"] },
+        "department": { "type": "string", "maxLength": 100 },
+        "permissions": { "type": "array" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["email", "name", "role"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "Student roster record for the Geology class",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string", "maxLength": 50 },
+        "fullName": { "type": "string", "maxLength": 120 },
+        "rollNumber": { "type": "string", "maxLength": 30 },
+        "email": { "type": "string", "maxLength": 150 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "course": { "type": "string", "maxLength": 80 },
+        "semester": { "type": "string", "maxLength": 30 },
+        "section": { "type": "string", "maxLength": 20 },
+        "enrollmentDate": { "type": "string" },
+        "avatarUrl": { "type": "string", "maxLength": 300 },
+        "accountStatus": { "type": "string", "enum": ["active", "locked", "disabled"] },
+        "lockReason": { "type": "string", "maxLength": 250 },
+        "authorizedDeviceId": { "type": "string", "maxLength": 100 },
+        "authorizedDeviceModel": { "type": "string", "maxLength": 100 },
+        "lastActivity": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["studentId", "fullName", "email", "accountStatus"]
+    },
+    "AttendanceSession": {
+      "title": "AttendanceSession",
+      "description": "Daily scheduled or active QR attendance session for Geology",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 80 },
+        "classId": { "type": "string", "maxLength": 50 },
+        "date": { "type": "string", "maxLength": 20 },
+        "startTime": { "type": "string", "maxLength": 20 },
+        "endTime": { "type": "string", "maxLength": 20 },
+        "token": { "type": "string", "maxLength": 120 },
+        "status": { "type": "string", "enum": ["scheduled", "active", "closed"] },
+        "totalStudents": { "type": "number" },
+        "presentCount": { "type": "number" },
+        "absentCount": { "type": "number" },
+        "notMarkedCount": { "type": "number" },
+        "correctionCount": { "type": "number" },
+        "createdBy": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "string" },
+        "closedAt": { "type": "string" },
+        "autoClosed": { "type": "boolean" }
+      },
+      "required": ["id", "classId", "date", "token", "status"]
+    },
+    "AttendanceRecord": {
+      "title": "AttendanceRecord",
+      "description": "Individual student attendance status for a particular session",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 120 },
+        "sessionId": { "type": "string", "maxLength": 80 },
+        "classId": { "type": "string", "maxLength": 50 },
+        "studentId": { "type": "string", "maxLength": 50 },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "rollNumber": { "type": "string", "maxLength": 30 },
+        "date": { "type": "string", "maxLength": 20 },
+        "status": { "type": "string", "enum": ["present", "absent", "not_marked", "correction_requested"] },
+        "method": { "type": "string", "enum": ["qr_scan", "manual_admin", "auto_close", "correction_approval"] },
+        "markedAt": { "type": "string" },
+        "markedBy": { "type": "string", "maxLength": 100 },
+        "deviceId": { "type": "string", "maxLength": 100 },
+        "notes": { "type": "string", "maxLength": 250 },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "sessionId", "studentId", "date", "status"]
+    },
+    "CorrectionRequest": {
+      "title": "CorrectionRequest",
+      "description": "Student-submitted attendance correction request (capped at 2 per month)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 80 },
+        "studentId": { "type": "string", "maxLength": 50 },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "rollNumber": { "type": "string", "maxLength": 30 },
+        "email": { "type": "string", "maxLength": 150 },
+        "attendanceDate": { "type": "string", "maxLength": 20 },
+        "sessionId": { "type": "string", "maxLength": 80 },
+        "currentStatus": { "type": "string", "enum": ["absent", "not_marked"] },
+        "requestedStatus": { "type": "string", "enum": ["present"] },
+        "reason": { "type": "string", "maxLength": 500 },
+        "monthKey": { "type": "string", "maxLength": 10 },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "submittedAt": { "type": "string" },
+        "decidedAt": { "type": "string" },
+        "decidedBy": { "type": "string", "maxLength": 100 },
+        "decisionNotes": { "type": "string", "maxLength": 300 }
+      },
+      "required": ["id", "studentId", "attendanceDate", "reason", "monthKey", "status"]
+    },
+    "ActivityLog": {
+      "title": "ActivityLog",
+      "description": "Auditable administrative and security activity event logs",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 80 },
+        "timestamp": { "type": "string" },
+        "actorId": { "type": "string", "maxLength": 100 },
+        "actorEmail": { "type": "string", "maxLength": 150 },
+        "actorName": { "type": "string", "maxLength": 100 },
+        "actorRole": { "type": "string", "enum": ["admin", "teacher", "cr", "system"] },
+        "eventType": { "type": "string", "maxLength": 50 },
+        "targetType": { "type": "string", "maxLength": 50 },
+        "targetId": { "type": "string", "maxLength": 100 },
+        "targetName": { "type": "string", "maxLength": 120 },
+        "details": { "type": "string", "maxLength": 500 },
+        "metadata": { "type": "object" }
+      },
+      "required": ["id", "timestamp", "actorRole", "eventType", "details"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "In-app alerts for administrators and students",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 80 },
+        "recipientType": { "type": "string", "enum": ["admin", "student"] },
+        "recipientId": { "type": "string", "maxLength": 100 },
+        "title": { "type": "string", "maxLength": 120 },
+        "message": { "type": "string", "maxLength": 300 },
+        "type": { "type": "string", "enum": ["correction_request", "account_lock", "device_mismatch", "correction_decision", "session_alert"] },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "link": { "type": "string", "maxLength": 200 }
+      },
+      "required": ["id", "recipientType", "title", "message", "read"]
+    },
+    "ClassConfig": {
+      "title": "ClassConfig",
+      "description": "Geology subject configuration and future extensible subject slots",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 50 },
+        "name": { "type": "string", "maxLength": 100 },
+        "code": { "type": "string", "maxLength": 30 },
+        "room": { "type": "string", "maxLength": 80 },
+        "academicYear": { "type": "string", "maxLength": 30 },
+        "slotStart": { "type": "string", "maxLength": 20 },
+        "slotEnd": { "type": "string", "maxLength": 20 },
+        "active": { "type": "boolean" },
+        "totalSessions": { "type": "number" }
+      },
+      "required": ["id", "name", "code", "active"]
+    }
+  },
+  "firestore": {
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/Admin" },
+      "description": "Authorized admin, teacher, and CR users"
+    },
+    "/students/{studentId}": {
+      "schema": { "$ref": "#/entities/Student" },
+      "description": "Geology class enrolled students with device status"
+    },
+    "/attendanceSessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/AttendanceSession" },
+      "description": "Daily Geology QR attendance sessions"
+    },
+    "/attendance/{recordId}": {
+      "schema": { "$ref": "#/entities/AttendanceRecord" },
+      "description": "Student attendance statuses per session"
+    },
+    "/correctionRequests/{requestId}": {
+      "schema": { "$ref": "#/entities/CorrectionRequest" },
+      "description": "Student attendance correction claims"
+    },
+    "/activityLogs/{logId}": {
+      "schema": { "$ref": "#/entities/ActivityLog" },
+      "description": "Audit and security logs"
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/Notification" },
+      "description": "Administrative notifications and security alerts"
+    },
+    "/classes/{classId}": {
+      "schema": { "$ref": "#/entities/ClassConfig" },
+      "description": "Class and subject configuration"
+    }
+  }
+}
