@@ -835,15 +835,24 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
     const defaultStart = currentClass.defaultStartTime || '10:00 AM';
     const defaultEnd = currentClass.defaultEndTime || '10:40 AM';
     
-    // Use configured time bounds exactly for the current day
+    // Use configured time bounds for current day
     const configuredStartEpoch = parseTimeToTodayEpoch(defaultStart);
     const configuredEndEpoch = parseTimeToTodayEpoch(defaultEnd);
     
-    // But if the class has already ended for the day and they are forcing a start, 
-    // or if they start early, we might want to just enforce the class bounds.
-    // The requirement says: "if I set time 12:00 PM - 12:40 PM, the session is starting from the opening of this APP... it should start from 12:00PM"
-    const startEpoch = configuredStartEpoch;
-    const endEpoch = configuredEndEpoch;
+    let durationMs = configuredEndEpoch - configuredStartEpoch;
+    if (durationMs <= 0) durationMs = 40 * 60 * 1000;
+
+    const now = Date.now();
+    let startEpoch = configuredStartEpoch;
+    let endEpoch = configuredEndEpoch;
+
+    // If configured end time is in the past or right now when teacher launches session,
+    // ensure endEpoch is extended into the future so session remains ACTIVE for students!
+    if (endEpoch <= now) {
+      startEpoch = Math.min(configuredStartEpoch, now);
+      endEpoch = now + durationMs;
+    }
+
     const sessionDate = todayStr;
     const token = `AMC-SEC-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
@@ -1007,42 +1016,25 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
   const updateSessionTime = useCallback(async (startTimeStr: string, endTimeStr: string) => {
     if (!activeSession) return;
     
-    // Attempt to parse the strings if they are times (like "10:00 AM" or "10:00")
-    // For simplicity, we just use the current date and set the hours/minutes if it's "HH:MM"
-    const today = new Date();
+    const newStartEpoch = parseTimeToTodayEpoch(startTimeStr);
+    let newEndEpoch = parseTimeToTodayEpoch(endTimeStr);
     
-    const parseTime = (timeStr: string) => {
-      try {
-        const [time, modifier] = timeStr.split(' ');
-        let [hours, minutes] = time.split(':').map(Number);
-        
-        if (modifier && modifier.toUpperCase() === 'PM' && hours < 12) {
-          hours += 12;
-        }
-        if (modifier && modifier.toUpperCase() === 'AM' && hours === 12) {
-          hours = 0;
-        }
-        
-        const d = new Date(today.getTime());
-        d.setHours(hours, minutes, 0, 0);
-        return d.getTime();
-      } catch (e) {
-        return Date.now();
-      }
-    };
-    
-    const newStartEpoch = parseTime(startTimeStr);
-    const newEndEpoch = parseTime(endTimeStr);
-    
+    // If end time epoch is <= start time epoch, add 40 minutes default
+    if (newEndEpoch <= newStartEpoch) {
+      newEndEpoch = newStartEpoch + 40 * 60 * 1000;
+    }
+
     const now = Date.now();
     const isNowWithinBounds = now >= newStartEpoch && now <= newEndEpoch;
+    const updatedStatus = isNowWithinBounds ? 'active' : (now < newStartEpoch ? 'active' : activeSession.status);
+
     const updated: AttendanceSession = {
       ...activeSession,
       startTime: startTimeStr,
       endTime: endTimeStr,
       startEpoch: newStartEpoch,
       endEpoch: newEndEpoch,
-      status: isNowWithinBounds ? 'active' : activeSession.status,
+      status: updatedStatus,
     };
 
     setSessions(prev =>
@@ -1056,7 +1048,7 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
         date: activeSession.date,
         startEpoch: newStartEpoch,
         endEpoch: newEndEpoch,
-        status: updated.status,
+        status: updatedStatus,
       };
       await updateDoc(doc(db, 'attendanceSessions', activeSession.id), docUpdates);
       await updateDoc(doc(db, 'sessions', activeSession.id), docUpdates).catch(() => {});
