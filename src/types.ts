@@ -12,11 +12,14 @@ export interface AdminUser {
   department: string;
   phone?: string;
   employeeId?: string;
+  rollNumber?: string;
+  semester?: string;
+  section?: string;
   designation?: string;
   officeLocation?: string;
   bio?: string;
   assignedSubject?: string;
-  assignedSubjectType?: 'Major' | 'Minor' | 'MDC' | 'Skills' | 'AEC' | 'VAC 1' | 'VAC 2' | 'All';
+  assignedSubjectType?: 'Major' | 'Minor' | 'MDC' | 'Skills' | 'AEC' | 'VAC 1' | 'VAC 2' | 'All' | 'CR Subject';
   assignedClass?: string;
   assignedRoom?: string;
   assignments?: TeachingAssignment[];
@@ -30,7 +33,7 @@ export interface AdminUser {
 export interface TeachingAssignment {
   id: string;
   subject: string;
-  subjectType?: 'Major' | 'Minor' | 'MDC' | 'Skills' | 'AEC' | 'VAC 1' | 'VAC 2' | 'All';
+  subjectType?: 'Major' | 'Minor' | 'MDC' | 'Skills' | 'AEC' | 'VAC 1' | 'VAC 2' | 'All' | 'CR Subject';
   className: string;
   room?: string;
   startTime?: string;
@@ -236,10 +239,13 @@ export interface CRDelegation {
   classId: string;
   className: string;
   section: string;
+  subject?: string;
+  subjectType?: string;
+  room?: string;
   permissions: string[];
   status: 'active' | 'revoked';
-  delegatedBy: string;
-  delegatedByType: 'student' | 'teacher' | 'admin';
-  createdAt: string;
-  updatedAt: string;
+  delegatedBy?: string;
+  delegatedByType?: 'student' | 'teacher' | 'admin' | 'cr';
+  createdAt?: string;
+  updatedAt?: string;
 }

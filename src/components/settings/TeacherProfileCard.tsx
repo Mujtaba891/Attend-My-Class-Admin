@@ -39,7 +39,9 @@ export const TeacherProfileCard: React.FC = () => {
         <div className="md:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-px bg-slate-800/50 rounded-xl overflow-hidden border border-slate-800">
           <div className="p-5 bg-slate-950/40 space-y-5">
             <div>
-              <div className="text-[10px] uppercase font-bold text-slate-500 mb-1">Faculty / Full Name</div>
+              <div className="text-[10px] uppercase font-bold text-slate-500 mb-1">
+                {adminProfile.role === 'cr' ? 'Student / CR Name' : 'Faculty / Full Name'}
+              </div>
               <div className="text-sm text-slate-200 font-bold flex items-center gap-1.5">
                 {adminProfile.name}
                 <CheckCircle2 className="w-4 h-4 text-emerald-500" />
@@ -49,31 +51,64 @@ export const TeacherProfileCard: React.FC = () => {
               <div className="text-[10px] uppercase font-bold text-slate-500 mb-1">Institutional Email</div>
               <div className="text-sm text-slate-200 font-medium">{adminProfile.email}</div>
             </div>
+            {adminProfile.role === 'cr' && adminProfile.rollNumber && (
+              <div>
+                <div className="text-[10px] uppercase font-bold text-amber-500 mb-1">Student Roll Number</div>
+                <div className="text-sm text-amber-300 font-mono font-bold">{adminProfile.rollNumber}</div>
+              </div>
+            )}
+            {adminProfile.role !== 'cr' && (
+              <>
+                <div>
+                  <div className="text-[10px] uppercase font-bold text-slate-500 mb-1">Designation / Role</div>
+                  <div className="text-sm text-slate-200 font-medium">{adminProfile.designation || 'Assistant Professor / Faculty'}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase font-bold text-slate-500 mb-1">Employee / Faculty ID</div>
+                  <div className="text-sm text-slate-200 font-medium">{adminProfile.employeeId || 'GEO-FAC-01'}</div>
+                </div>
+              </>
+            )}
             <div>
-              <div className="text-[10px] uppercase font-bold text-slate-500 mb-1">Department</div>
+              <div className="text-[10px] uppercase font-bold text-slate-500 mb-1">Academic Program / Dept</div>
               <div className="text-sm text-slate-200 font-medium">{adminProfile.department || 'Department of Geology'}</div>
             </div>
           </div>
           <div className="p-5 bg-slate-950/40 space-y-5">
             <div>
-              <div className="text-[10px] uppercase font-bold text-emerald-500 mb-1">Assigned Subject & Type</div>
+              <div className="text-[10px] uppercase font-bold text-emerald-500 mb-1">
+                {adminProfile.role === 'cr' ? 'Delegated Subject' : 'Assigned Subject & Type'}
+              </div>
               <div className="text-sm text-slate-200 font-bold flex items-center gap-2">
                 {adminProfile.assignedSubject}
-                <span className="text-[10px] px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-sm border border-emerald-500/20 uppercase tracking-wider">{adminProfile.assignedSubjectType || 'All'}</span>
+                {adminProfile.role === 'cr' ? (
+                  <span className="text-[10px] px-2 py-0.5 bg-blue-500/20 text-blue-300 rounded-sm border border-blue-500/30 uppercase tracking-wider font-bold">CR Subject</span>
+                ) : (
+                  <span className="text-[10px] px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-sm border border-emerald-500/20 uppercase tracking-wider">{adminProfile.assignedSubjectType || 'All'}</span>
+                )}
               </div>
             </div>
             <div>
-              <div className="text-[10px] uppercase font-bold text-emerald-500 mb-1">Assigned Class / Semester</div>
+              <div className="text-[10px] uppercase font-bold text-emerald-500 mb-1">Class / Semester / Section</div>
               <div className="text-sm text-slate-200 font-medium leading-snug">
                 {adminProfile.assignedClass}
               </div>
             </div>
-            <div>
-              <div className="text-[10px] uppercase font-bold text-emerald-500 mb-1">Lecture Room</div>
-              <div className="text-sm text-slate-200 font-medium">
-                {adminProfile.assignedRoom || 'Not specified'}
+            {adminProfile.role !== 'cr' ? (
+              <div>
+                <div className="text-[10px] uppercase font-bold text-emerald-500 mb-1">Office / Classroom Location</div>
+                <div className="text-sm text-slate-200 font-medium">
+                  {adminProfile.officeLocation || adminProfile.assignedRoom || 'Block C, Room 30'}
+                </div>
               </div>
-            </div>
+            ) : (
+              <div>
+                <div className="text-[10px] uppercase font-bold text-emerald-500 mb-1">Classroom Location</div>
+                <div className="text-sm text-slate-200 font-medium">
+                  {adminProfile.assignedRoom || 'Block C room no 30'}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -90,7 +125,7 @@ export const TeacherProfileCard: React.FC = () => {
               </div>
             ) : (
               assignments.map(a => {
-                const isActive = adminProfile.assignedSubject === a.subject && adminProfile.assignedClass === a.className && (adminProfile.assignedSubjectType || 'All') === (a.subjectType || 'All');
+                const isActive = adminProfile.assignedSubject === a.subject;
                 return (
                   <div key={a.id} onClick={() => handleMakeActive(a)} className={`p-3 rounded-xl border cursor-pointer transition-colors ${isActive ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-slate-900 border-slate-800 hover:border-slate-700'}`}>
                     <div className="flex items-center justify-between mb-1">

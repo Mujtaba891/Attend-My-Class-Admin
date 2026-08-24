@@ -119,7 +119,7 @@ export const MobileMenuSheet: React.FC<MobileMenuSheetProps> = ({
     {
       title: 'Administration',
       items: [
-        { id: 'settings', label: 'Profile', icon: Settings, roles: ['admin', 'teacher'] },
+        { id: 'settings', label: 'Profile', icon: Settings, roles: ['admin', 'teacher', 'cr'] },
       ],
     },
   ];

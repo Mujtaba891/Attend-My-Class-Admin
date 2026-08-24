@@ -113,14 +113,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
       id: 'settings',
       label: 'Profile',
       icon: Settings,
-      roles: ['admin', 'teacher'],
+      roles: ['admin', 'teacher', 'cr'],
     },
   ];
 
   const visibleItems = navItems.filter(item => item.roles.includes(currentRole));
 
   return (
-    <aside className="hidden md:flex w-64 bg-slate-900 border-r border-slate-800 flex-col h-full shrink-0 select-none overflow-y-auto sticky top-0">
+    <aside className="hidden md:flex w-64 bg-slate-900 border-r border-slate-800 flex-col h-full shrink-0 select-none overflow-y-auto">
       {/* Subject Header Banner */}
       <div className="p-4 border-b border-slate-800/80 bg-slate-950/40">
         <div className="flex items-center justify-between">

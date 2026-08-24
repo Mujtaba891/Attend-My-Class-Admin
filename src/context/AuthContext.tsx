@@ -8,15 +8,118 @@ import {
   updateProfile as updateFirebaseProfile,
   signOut as firebaseSignOut,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db, googleProvider } from '../firebase';
-import { AdminUser, UserRole } from '../types';
+import { AdminUser, UserRole, TeachingAssignment } from '../types';
+
+async function enrichCRProfileWithFirestoreData(email: string, baseProfile: AdminUser): Promise<AdminUser> {
+  let enriched = { ...baseProfile };
+  const cleanEmail = (email || baseProfile.email || '').trim().toLowerCase();
+  if (!cleanEmail) return enriched;
+
+  try {
+    // 1. Fetch CR delegations from 'crDelegations' collection
+    const crQ = query(collection(db, 'crDelegations'), where('email', '==', cleanEmail));
+    const crSnap = await getDocs(crQ);
+    const crDelegationsList: any[] = [];
+    if (!crSnap.empty) {
+      crSnap.docs.forEach(d => {
+        crDelegationsList.push({ id: d.id, ...d.data() });
+      });
+    }
+
+    // 2. Fetch student record from 'students' collection
+    const studentQ = query(collection(db, 'students'), where('email', '==', cleanEmail));
+    const studentSnap = await getDocs(studentQ);
+    let studentData: any = null;
+    if (!studentSnap.empty) {
+      studentData = studentSnap.docs[0].data();
+    }
+
+    // IF USER IS TEACHER OR ADMIN (and role is NOT explicitly 'cr'):
+    if (baseProfile.role === 'teacher' || baseProfile.role === 'admin') {
+      enriched = {
+        ...baseProfile,
+        rollNumber: undefined,
+        semester: undefined,
+        section: undefined,
+        designation: baseProfile.designation || 'Assistant Professor / Faculty Member',
+        employeeId: baseProfile.employeeId || 'GEO-FAC-01',
+        officeLocation: baseProfile.officeLocation || 'Block C, Room 30',
+      };
+      return enriched;
+    }
+
+    // IF USER IS CR / STUDENT:
+    const isCRUser = baseProfile.role === 'cr' || crDelegationsList.length > 0;
+
+    if (studentData || crDelegationsList.length > 0 || isCRUser) {
+      const name = studentData?.fullName || studentData?.name || (baseProfile.name && baseProfile.name !== 'Faculty User' ? baseProfile.name : '') || 'Class Representative';
+      const avatarUrl = studentData?.photoUrl || studentData?.avatarUrl || baseProfile.avatarUrl;
+      const semester = studentData?.semester || baseProfile.semester || 'Semester I';
+      const section = studentData?.section || baseProfile.section || 'A';
+      const rollNumber = studentData?.rollNumber || studentData?.studentId || baseProfile.rollNumber || 'CR-2026-01';
+      const studentMajor = studentData?.major || studentData?.course || 'Geology';
+      const course = studentData?.course || studentData?.major || 'B.Sc. Academic Program';
+
+      const primaryDel = crDelegationsList[0];
+      const activeSubject = primaryDel?.subject || baseProfile.assignedSubject || studentMajor || 'Geology';
+      const activeSubjectType = primaryDel?.subjectType || baseProfile.assignedSubjectType || 'MDC';
+      const activeClass = primaryDel?.className || baseProfile.assignedClass || `${semester} - Section ${section}`;
+      const activeRoom = primaryDel?.room || baseProfile.assignedRoom || 'Block C room no 30';
+
+      let assignments: TeachingAssignment[] = crDelegationsList.map(cr => ({
+        id: cr.id,
+        subject: cr.subject || cr.className || studentMajor,
+        subjectType: cr.subjectType || 'MDC',
+        className: cr.className || `${semester} - Section ${section}`,
+        room: cr.room || 'Block C room no 30'
+      }));
+
+      if (assignments.length === 0) {
+        assignments = (baseProfile.assignments && baseProfile.assignments.length > 0) ? baseProfile.assignments : [{
+          id: `assign_${Date.now()}`,
+          subject: activeSubject,
+          subjectType: activeSubjectType,
+          className: activeClass,
+          room: activeRoom
+        }];
+      }
+
+      enriched = {
+        ...baseProfile,
+        name: name,
+        avatarUrl: avatarUrl || baseProfile.avatarUrl,
+        rollNumber: rollNumber,
+        semester: semester,
+        section: section,
+        department: course,
+        assignedSubject: activeSubject,
+        assignedSubjectType: activeSubjectType as any,
+        assignedClass: activeClass,
+        assignedRoom: activeRoom,
+        assignments: assignments,
+        role: 'cr',
+        permissions: ['view_sessions', 'mark_live_attendance', 'view_board', 'classroom_display', 'view_students'],
+        employeeId: undefined,
+        officeLocation: undefined,
+        designation: undefined,
+      };
+    }
+  } catch (err) {
+    console.warn('CR Profile enrichment notice:', err);
+  }
+  return enriched;
+}
 
 export interface FacultyLoginPayload {
   name: string;
   email: string;
   role: UserRole;
   department: string;
+  designation?: string;
+  employeeId?: string;
+  officeLocation?: string;
   assignedSubject?: string;
   assignedSubjectType?: 'Major' | 'Minor' | 'MDC' | 'Skills' | 'AEC' | 'VAC 1' | 'VAC 2' | 'All';
   assignedClass?: string;
@@ -31,7 +134,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   loginAsFaculty: (payload: FacultyLoginPayload, password?: string) => Promise<void>;
-  loginWithEmail: (email: string, password?: string) => Promise<void>;
+  loginWithEmail: (email: string, password?: string, targetRole?: UserRole) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
   switchRole: (role: UserRole) => void;
@@ -44,10 +147,14 @@ const DEFAULT_PROFILE: AdminUser = {
   email: 'faculty@college.edu',
   name: 'Faculty Teacher',
   role: 'teacher',
-  department: 'Department of Academic Studies',
-  assignedSubject: 'Core Academic Course (Theory & Lab)',
-  assignedClass: 'Semester IV - Section A (Batch 2024-2027)',
-  assignedRoom: 'Lecture Hall 204 (North Wing)',
+  department: 'Department of Geology',
+  designation: 'Assistant Professor / Faculty',
+  employeeId: 'GEO-FAC-01',
+  officeLocation: 'Block C, Room 30',
+  assignedSubject: 'Geology',
+  assignedSubjectType: 'MDC',
+  assignedClass: 'Semester I - Section A (Batch 2026-2027)',
+  assignedRoom: 'Block C room no 30',
   permissions: ['manage_sessions', 'mark_attendance', 'approve_corrections', 'view_reports', 'view_students'],
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
@@ -97,11 +204,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           const userDocRef = doc(db, 'users', firebaseUser.uid);
           const userSnap = await getDoc(userDocRef);
+          const adminDocRef = doc(db, 'admins', firebaseUser.uid);
+          const adminSnap = await getDoc(adminDocRef);
+
+          const cleanEmail = (firebaseUser.email || '').trim().toLowerCase();
+          const isMasterAdmin = cleanEmail === 'mujtabaalam010@gmail.com';
 
           if (userSnap.exists()) {
             const data = userSnap.data();
-            const role = (data.role as UserRole) || (firebaseUser.email === 'mujtabaalam010@gmail.com' ? 'admin' : 'teacher');
-            setAdminProfile({
+            let role: UserRole = (data.role as UserRole) || (adminSnap.exists() ? (adminSnap.data()?.role || 'teacher') : 'teacher');
+
+            const base: AdminUser = {
               uid: firebaseUser.uid,
               email: firebaseUser.email || data.email || 'faculty@college.edu',
               name: data.name || firebaseUser.displayName || 'Academic Faculty',
@@ -109,59 +222,78 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               department: data.department || 'Department of Academic Studies',
               phone: data.phone,
               employeeId: data.employeeId,
+              rollNumber: data.rollNumber,
+              semester: data.semester,
+              section: data.section,
               designation: data.designation,
               officeLocation: data.officeLocation,
               bio: data.bio,
-              assignedSubject: data.assignedSubject || 'Core Subject (Theory & Lab)',
-              assignedSubjectType: data.assignedSubjectType || 'Major',
-              assignedClass: data.assignedClass || 'Semester IV - Section A',
-              assignedRoom: data.assignedRoom || 'Lecture Hall 204',
+              assignedSubject: data.assignedSubject || 'Geology',
+              assignedSubjectType: data.assignedSubjectType || 'MDC',
+              assignedClass: data.assignedClass || 'Semester I - Section A',
+              assignedRoom: data.assignedRoom || 'Block C room no 30',
               assignments: data.assignments || [{
                 id: `assign_${Date.now()}`,
-                subject: data.assignedSubject || 'Core Subject (Theory & Lab)',
-                className: data.assignedClass || 'Semester IV - Section A',
-                room: data.assignedRoom || 'Lecture Hall 204'
+                subject: data.assignedSubject || 'Geology',
+                subjectType: data.assignedSubjectType || 'MDC',
+                className: data.assignedClass || 'Semester I - Section A',
+                room: data.assignedRoom || 'Block C room no 30'
               }],
-              permissions: data.permissions || (role === 'admin' ? ['all'] : ['manage_sessions', 'mark_attendance']),
+              permissions: data.permissions || (role === 'admin' ? ['all'] : role === 'teacher' ? ['manage_sessions', 'mark_attendance'] : ['view_sessions', 'mark_live_attendance', 'view_board', 'classroom_display', 'view_students']),
               avatarUrl: firebaseUser.photoURL || data.avatarUrl,
               createdAt: data.createdAt || new Date().toISOString(),
               updatedAt: new Date().toISOString(),
-            });
-            setCurrentRole(role);
+            };
+            const enriched = await enrichCRProfileWithFirestoreData(firebaseUser.email || '', base);
+            
+            // Sync role to Firestore if updated
+            if (data.role !== enriched.role) {
+              await setDoc(userDocRef, { role: enriched.role, lastLoginAt: new Date().toISOString() }, { merge: true });
+            }
+
+            setAdminProfile(enriched);
+            setCurrentRole(enriched.role);
           } else {
             // Document does not exist in Firestore, create it
-            const role: UserRole = firebaseUser.email === 'mujtabaalam010@gmail.com' ? 'admin' : 'teacher';
-            const permissions = role === 'admin'
+            const defaultRole: UserRole = isMasterAdmin ? 'admin' : 'teacher';
+            const permissions = defaultRole === 'admin'
               ? ['all', 'manage_students', 'manage_sessions', 'lock_accounts', 'approve_corrections', 'view_reports', 'manage_devices', 'system_config']
               : ['manage_sessions', 'mark_attendance', 'approve_corrections', 'view_reports', 'view_students'];
 
-            const newDoc = {
+            const newDoc: AdminUser = {
               uid: firebaseUser.uid,
               email: firebaseUser.email || '',
               name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Faculty User',
-              role,
-              department: 'Department of Academic Studies',
-              assignedSubject: 'Core Subject (Theory & Lab)',
-              assignedClass: 'Semester IV - Section A',
-              assignedRoom: 'Lecture Hall 204',
+              role: defaultRole,
+              department: 'Department of Geology',
+              designation: 'Assistant Professor / Faculty',
+              employeeId: 'GEO-FAC-01',
+              officeLocation: 'Block C, Room 30',
+              assignedSubject: 'Geology',
+              assignedSubjectType: 'MDC',
+              assignedClass: 'Semester I - Section A (Batch 2026-2027)',
+              assignedRoom: 'Block C room no 30',
               assignments: [{
                 id: `assign_${Date.now()}`,
-                subject: 'Core Subject (Theory & Lab)',
-                className: 'Semester IV - Section A',
-                room: 'Lecture Hall 204'
+                subject: 'Geology',
+                subjectType: 'MDC',
+                className: 'Semester I - Section A (Batch 2026-2027)',
+                room: 'Block C room no 30'
               }],
               permissions,
               avatarUrl: firebaseUser.photoURL || '',
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
-              lastLoginAt: new Date().toISOString(),
             };
 
-            await setDoc(userDocRef, newDoc, { merge: true });
-            await setDoc(doc(db, 'admins', firebaseUser.uid), newDoc, { merge: true });
+            const enriched = await enrichCRProfileWithFirestoreData(firebaseUser.email || '', newDoc);
+            await setDoc(userDocRef, { ...enriched, lastLoginAt: new Date().toISOString() }, { merge: true });
+            if (enriched.role === 'admin' || enriched.role === 'teacher') {
+              await setDoc(doc(db, 'admins', firebaseUser.uid), { ...enriched, lastLoginAt: new Date().toISOString() }, { merge: true });
+            }
 
-            setAdminProfile(newDoc as AdminUser);
-            setCurrentRole(role);
+            setAdminProfile(enriched);
+            setCurrentRole(enriched.role);
           }
         } catch (err) {
           console.warn('Firestore user profile fetch notice:', err);
@@ -181,7 +313,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
 
-  const loginWithEmail = async (email: string, passwordInput?: string) => {
+  const loginWithEmail = async (email: string, passwordInput?: string, targetRole?: UserRole) => {
     setIsLoading(true);
     const pass = passwordInput && passwordInput.length >= 6 ? passwordInput : 'College@2026';
     try {
@@ -190,33 +322,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       const userDocRef = doc(db, 'users', firebaseUser.uid);
       const userDoc = await getDoc(userDocRef);
-      
+      const adminDocRef = doc(db, 'admins', firebaseUser.uid);
+      const adminSnap = await getDoc(adminDocRef);
+
+      const cleanEmail = (email || firebaseUser.email || '').trim().toLowerCase();
+      const isMasterAdmin = cleanEmail === 'mujtabaalam010@gmail.com';
+
       if (userDoc.exists()) {
         const data = userDoc.data();
-        const role = (data.role) || 'teacher';
-        
+        let role: UserRole = targetRole || (data.role as UserRole) || (adminSnap.exists() ? (adminSnap.data()?.role || 'teacher') : 'teacher');
+
         const adminData = {
           ...data,
           uid: firebaseUser.uid,
           email: firebaseUser.email || data.email,
           name: data.name || firebaseUser.displayName,
           role,
-          department: data.department,
-          assignedSubject: data.assignedSubject,
-          assignedSubjectType: data.assignedSubjectType,
-          assignedClass: data.assignedClass,
-          assignedRoom: data.assignedRoom,
+          department: data.department || (role === 'cr' ? 'Student Academic Council' : 'Department of Geology'),
+          designation: data.designation || (role !== 'cr' ? 'Assistant Professor / Faculty' : undefined),
+          employeeId: data.employeeId || (role !== 'cr' ? 'GEO-FAC-01' : undefined),
+          officeLocation: data.officeLocation || (role !== 'cr' ? 'Block C, Room 30' : undefined),
+          assignedSubject: data.assignedSubject || 'Geology',
+          assignedSubjectType: data.assignedSubjectType || 'MDC',
+          assignedClass: data.assignedClass || 'Semester I - Section A',
+          assignedRoom: data.assignedRoom || 'Block C room no 30',
           assignments: data.assignments,
-          permissions: data.permissions,
+          permissions: data.permissions || (role === 'admin' ? ['all'] : role === 'teacher' ? ['manage_sessions', 'mark_attendance'] : ['view_sessions', 'mark_live_attendance', 'view_board', 'classroom_display', 'view_students']),
           avatarUrl: firebaseUser.photoURL || data.avatarUrl,
           createdAt: data.createdAt,
           updatedAt: new Date().toISOString(),
         } as any;
         
-        await setDoc(userDocRef, { lastLoginAt: new Date().toISOString() }, { merge: true });
+        const enriched = await enrichCRProfileWithFirestoreData(email, adminData);
+        await setDoc(userDocRef, { ...enriched, role: enriched.role, lastLoginAt: new Date().toISOString() }, { merge: true });
+        if (enriched.role === 'admin' || enriched.role === 'teacher') {
+          await setDoc(doc(db, 'admins', firebaseUser.uid), { ...enriched, role: enriched.role, lastLoginAt: new Date().toISOString() }, { merge: true });
+        }
         
-        setAdminProfile(adminData);
-        setCurrentRole(role);
+        setAdminProfile(enriched);
+        setCurrentRole(enriched.role);
       } else {
         throw new Error('User profile not found. Please create an account first.');
       }
@@ -246,7 +390,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const cred = await signInWithEmailAndPassword(auth, payload.email, pass);
         firebaseUser = cred.user;
       } catch (authErr: any) {
-        // If user not found, create new account in Firebase Auth
         if (
           authErr.code === 'auth/user-not-found' ||
           authErr.code === 'auth/invalid-credential' ||
@@ -270,18 +413,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(firebaseUser);
       }
 
+      const effectiveRole: UserRole = payload.role;
+
       // 2. Build User Profile & Permissions
       const permissions =
-        payload.role === 'admin'
+        effectiveRole === 'admin'
           ? ['all', 'manage_students', 'manage_sessions', 'lock_accounts', 'approve_corrections', 'view_reports', 'manage_devices', 'system_config']
-          : payload.role === 'teacher'
+          : effectiveRole === 'teacher'
           ? ['manage_sessions', 'mark_attendance', 'approve_corrections', 'view_reports', 'view_students']
           : ['view_sessions', 'mark_live_attendance', 'view_board', 'classroom_display'];
 
       const now = new Date().toISOString();
       let existingAssignments: any[] = [];
       let existingData: Record<string, any> = {};
-      let profileData = null;
       try {
         const existingDoc = await getDoc(doc(db, 'users', authUid));
         if (existingDoc.exists()) {
@@ -292,14 +436,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       const newAssignment = {
         id: `assign_${Date.now()}`,
-        subject: payload.assignedSubject || 'Core Subject (Theory & Lab)',
-        subjectType: payload.assignedSubjectType || 'All',
-        className: payload.assignedClass || 'Semester IV - Section A',
-        room: payload.assignedRoom || 'Lecture Hall 204'
+        subject: payload.assignedSubject || 'Geology',
+        subjectType: payload.assignedSubjectType || 'MDC',
+        className: payload.assignedClass || 'Semester I - Section A',
+        room: payload.assignedRoom || 'Block C room no 30'
       };
       
       const isDuplicate = existingAssignments.some(a => 
-        a.subject === newAssignment.subject && a.className === newAssignment.className && (a.subjectType || 'All') === (newAssignment.subjectType || 'All')
+        a.subject === newAssignment.subject && a.className === newAssignment.className && (a.subjectType || 'MDC') === (newAssignment.subjectType || 'MDC')
       );
       
       if (!isDuplicate && payload.assignedSubject) {
@@ -310,26 +454,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         existingAssignments.push(newAssignment);
       }
 
-      profileData = {
+      let profileData = {
         ...existingData,
         uid: authUid,
         email: payload.email,
-        name: payload.name,
-        role: payload.role,
-        department: payload.department || 'Department of Academic Studies',
-        assignedSubject: payload.assignedSubject || existingAssignments[existingAssignments.length-1].subject,
-        assignedSubjectType: payload.assignedSubjectType || existingAssignments[existingAssignments.length-1].subjectType || 'All',
-        assignedClass: payload.assignedClass || existingAssignments[existingAssignments.length-1].className,
-        assignedRoom: payload.assignedRoom || existingAssignments[existingAssignments.length-1].room,
+        name: payload.name || existingData.name || 'Faculty User',
+        role: effectiveRole,
+        department: payload.department || existingData.department || 'Department of Geology',
+        designation: effectiveRole !== 'cr' ? (payload.designation || existingData.designation || 'Assistant Professor / Faculty') : undefined,
+        employeeId: effectiveRole !== 'cr' ? (payload.employeeId || existingData.employeeId || 'GEO-FAC-01') : undefined,
+        officeLocation: effectiveRole !== 'cr' ? (payload.officeLocation || existingData.officeLocation || 'Block C, Room 30') : undefined,
+        assignedSubject: payload.assignedSubject || existingAssignments[existingAssignments.length-1]?.subject || 'Geology',
+        assignedSubjectType: payload.assignedSubjectType || existingAssignments[existingAssignments.length-1]?.subjectType || 'MDC',
+        assignedClass: payload.assignedClass || existingAssignments[existingAssignments.length-1]?.className || 'Semester I - Section A',
+        assignedRoom: payload.assignedRoom || existingAssignments[existingAssignments.length-1]?.room || 'Block C room no 30',
         assignments: existingAssignments,
         permissions,
         createdAt: existingData.createdAt || now,
         updatedAt: now,
       } as any;
 
+      profileData = await enrichCRProfileWithFirestoreData(payload.email, profileData);
+
       // 3. Persist to Firestore: /users/{uid} and /admins/{uid}
       try {
-        const firestoreData = { ...profileData, lastLoginAt: now };
+        const firestoreData = { ...profileData, role: profileData.role, lastLoginAt: now };
         Object.keys(firestoreData).forEach(key => {
           if (firestoreData[key] === undefined) {
             delete firestoreData[key];
@@ -337,9 +486,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
         await setDoc(doc(db, 'users', authUid), firestoreData, { merge: true });
 
-        if (payload.role === 'admin' || payload.role === 'teacher' || payload.role === 'cr') {
+        if (profileData.role === 'admin' || profileData.role === 'teacher') {
           await setDoc(doc(db, 'admins', authUid), {
             ...profileData,
+            role: profileData.role,
             lastLoginAt: now,
           }, { merge: true });
         }
@@ -352,19 +502,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           actorId: authUid,
           actorEmail: payload.email,
           actorName: payload.name,
-          actorRole: payload.role,
+          actorRole: profileData.role,
           eventType: 'user_login',
           targetType: 'auth',
           targetId: authUid,
           targetName: payload.name,
-          details: `User ${payload.name} (${payload.email}) authenticated as ${payload.role.toUpperCase()} and stored in Firebase Auth & Firestore.`,
+          details: `User ${payload.name} (${payload.email}) authenticated as ${profileData.role.toUpperCase()} and stored in Firebase Auth & Firestore.`,
         });
       } catch (firestoreErr) {
         console.warn('Firestore user persistence notice:', firestoreErr);
       }
 
       setAdminProfile(profileData);
-      setCurrentRole(payload.role);
+      setCurrentRole(profileData.role);
       setIsAuthenticated(true);
     } finally {
       setIsLoading(false);
@@ -378,43 +528,58 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (result.user) {
         const u = result.user;
         const now = new Date().toISOString();
-        const role: UserRole = u.email === 'mujtabaalam010@gmail.com' ? 'admin' : 'teacher';
+        const userDocRef = doc(db, 'users', u.uid);
+        const userSnap = await getDoc(userDocRef);
+        const existingData = userSnap.exists() ? userSnap.data() : {};
+
+        const cleanEmail = (u.email || '').trim().toLowerCase();
+        const role: UserRole = existingData.role || (cleanEmail === 'mujtabaalam010@gmail.com' ? 'admin' : 'teacher');
         const permissions = role === 'admin'
           ? ['all', 'manage_students', 'manage_sessions', 'lock_accounts', 'approve_corrections', 'view_reports', 'manage_devices', 'system_config']
-          : ['manage_sessions', 'mark_attendance', 'approve_corrections', 'view_reports', 'view_students'];
+          : role === 'teacher'
+          ? ['manage_sessions', 'mark_attendance', 'approve_corrections', 'view_reports', 'view_students']
+          : ['view_sessions', 'mark_live_attendance', 'view_board', 'classroom_display', 'view_students'];
 
-        const profileData: AdminUser = {
+        let profileData: AdminUser = {
           uid: u.uid,
           email: u.email || 'faculty@college.edu',
-          name: u.displayName || u.email?.split('@')[0] || 'Google Faculty User',
+          name: existingData.name || u.displayName || u.email?.split('@')[0] || 'Google User',
           role,
-          department: 'Department of Academic Studies',
-          assignedSubject: 'Core Subject (Theory & Lab)',
-          assignedClass: 'Semester IV - Section A',
-          assignedRoom: 'Lecture Hall 204',
-          assignments: [{
+          department: existingData.department || 'Department of Geology',
+          assignedSubject: existingData.assignedSubject || 'Geology',
+          assignedSubjectType: existingData.assignedSubjectType || 'MDC',
+          assignedClass: existingData.assignedClass || 'Semester I - Section A',
+          assignedRoom: existingData.assignedRoom || 'Block C room no 30',
+          assignments: existingData.assignments || [{
             id: `assign_${Date.now()}`,
-            subject: 'Core Subject (Theory & Lab)',
-            className: 'Semester IV - Section A',
-            room: 'Lecture Hall 204'
+            subject: 'Geology',
+            subjectType: 'MDC',
+            className: 'Semester I - Section A',
+            room: 'Block C room no 30'
           }],
           permissions,
-          avatarUrl: u.photoURL || '',
-          createdAt: now,
+          avatarUrl: u.photoURL || existingData.avatarUrl || '',
+          createdAt: existingData.createdAt || now,
           updatedAt: now,
         };
 
+        profileData = await enrichCRProfileWithFirestoreData(u.email || '', profileData);
+
         // Persist to Firestore /users/{uid} and /admins/{uid}
         try {
-          await setDoc(doc(db, 'users', u.uid), {
+          await setDoc(userDocRef, {
             ...profileData,
+            role: profileData.role,
             lastLoginAt: now,
           }, { merge: true });
 
-          await setDoc(doc(db, 'admins', u.uid), {
-            ...profileData,
-            lastLoginAt: now,
-          }, { merge: true });
+          if (profileData.role === 'admin' || profileData.role === 'teacher') {
+            await setDoc(doc(db, 'admins', u.uid), {
+              ...profileData,
+              role: profileData.role,
+              lastLoginAt: now,
+            }, { merge: true });
+          }
 
           const logId = `log_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
           await setDoc(doc(db, 'activityLogs', logId), {
@@ -478,8 +643,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setDoc(userRef, firestoreData, { merge: true }).catch(err => {
           console.warn('Failed to sync profile update to Firestore:', err);
         });
-        const adminRef = doc(db, 'admins', updated.uid);
-        setDoc(adminRef, firestoreData, { merge: true }).catch(() => {});
+        if (updated.role === 'admin' || updated.role === 'teacher') {
+          const adminRef = doc(db, 'admins', updated.uid);
+          setDoc(adminRef, firestoreData, { merge: true }).catch(() => {});
+        }
       }
       
       return updated;

@@ -104,34 +104,70 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   });
 
   const students = useMemo(() => {
-    if (!adminProfile || adminProfile.role === 'admin' || !adminProfile.assignedSubject) {
+    if (!adminProfile || adminProfile.role === 'admin') {
       return rawStudents;
     }
-    
-    const subject = adminProfile.assignedSubject;
-    const type = adminProfile.assignedSubjectType;
 
-    return rawStudents.filter(student => {
-      if (type === 'Major') return student.major === subject;
-      if (type === 'Minor') return student.minor === subject;
-      if (type === 'MDC') return student.mdc === subject;
-      if (type === 'Skills') return student.skills === subject;
-      if (type === 'AEC') return student.aec === subject;
-      if (type === 'VAC 1') return student.vac1 === subject;
-      if (type === 'VAC 2') return student.vac2 === subject;
-      if (type === 'All') {
-        return (
-          student.major === subject ||
-          student.minor === subject ||
-          student.mdc === subject ||
-          student.skills === subject ||
-          student.aec === subject ||
-          student.vac1 === subject ||
-          student.vac2 === subject
+    const assignedSubject = (adminProfile.assignedSubject || '').trim();
+    if (!assignedSubject || assignedSubject.toLowerCase() === 'all' || assignedSubject.toLowerCase() === 'all subjects') {
+      return rawStudents;
+    }
+
+    const targetClean = assignedSubject.toLowerCase().replace(/\(mdc\)|\(cr subject\)|\(major\)|\(minor\)/gi, '').trim();
+    const targetType = adminProfile.assignedSubjectType as string | undefined;
+
+    const filtered = rawStudents.filter(student => {
+      const sMajor = (student.major || '').toLowerCase().trim();
+      const sMinor = (student.minor || '').toLowerCase().trim();
+      const sMdc = (student.mdc || '').toLowerCase().trim();
+      const sSkills = (student.skills || '').toLowerCase().trim();
+      const sAec = (student.aec || '').toLowerCase().trim();
+      const sVac1 = (student.vac1 || '').toLowerCase().trim();
+      const sVac2 = (student.vac2 || '').toLowerCase().trim();
+      const sCourse = (student.course || '').toLowerCase().trim();
+
+      // If targetType is MDC or if user is CR with MDC/CR Subject/unspecified
+      const isMDCCourse = targetType === 'MDC' || (adminProfile.role === 'cr' && (targetType === 'CR Subject' || !targetType || targetType === 'MDC'));
+
+      if (isMDCCourse && sMdc) {
+        return sMdc === targetClean || targetClean.includes(sMdc) || sMdc.includes(targetClean);
+      }
+
+      // Check based on subjectType if explicitly specified
+      if (targetType === 'Major' && sMajor) {
+        return sMajor === targetClean || targetClean.includes(sMajor) || sMajor.includes(targetClean);
+      }
+      if (targetType === 'Minor' && sMinor) {
+        return sMinor === targetClean || targetClean.includes(sMinor) || sMinor.includes(targetClean);
+      }
+      if (targetType === 'MDC' && sMdc) {
+        return sMdc === targetClean || targetClean.includes(sMdc) || sMdc.includes(targetClean);
+      }
+      if (targetType === 'Skills' && sSkills) {
+        return sSkills === targetClean || targetClean.includes(sSkills) || sSkills.includes(targetClean);
+      }
+      if (targetType === 'AEC' && sAec) {
+        return sAec === targetClean || targetClean.includes(sAec) || sAec.includes(targetClean);
+      }
+      if (targetType === 'VAC 1' && sVac1) {
+        return sVac1 === targetClean || targetClean.includes(sVac1) || sVac1.includes(targetClean);
+      }
+      if (targetType === 'VAC 2' && sVac2) {
+        return sVac2 === targetClean || targetClean.includes(sVac2) || sVac2.includes(targetClean);
+      }
+
+      // Default or CR Subject matching across specific subject fields (excluding generic course degree name)
+      const specificSubjects = [sMdc, sMajor, sMinor, sSkills, sAec, sVac1, sVac2].filter(Boolean);
+      if (specificSubjects.length > 0) {
+        return specificSubjects.some(sub => 
+          sub === targetClean || targetClean.includes(sub) || sub.includes(targetClean)
         );
       }
-      return true; // Fallback
+
+      return sCourse === targetClean || targetClean.includes(sCourse) || sCourse.includes(targetClean);
     });
+
+    return filtered;
   }, [rawStudents, adminProfile]);
 
   const [sessions, setSessions] = useState<AttendanceSession[]>(() => {
@@ -175,30 +211,42 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     } catch (e) {}
     return INITIAL_CLASSES;
   });
+  const [systemSchedule, setSystemSchedule] = useState<{
+    startTime: string;
+    endTime: string;
+    duration: number;
+    room: string;
+  }>(() => {
+    try {
+      const saved = localStorage.getItem('amc_system_schedule');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return {
+      startTime: '09:40 AM',
+      endTime: '10:00 AM',
+      duration: 20,
+      room: 'Block C room no 30',
+    };
+  });
+
   const currentClass = useMemo(() => {
     const baseClass = classes.find(c => c.id === 'core_class') || classes[0];
-    
-    if (!adminProfile || !adminProfile.assignedSubject) return baseClass;
+    const paperName = adminProfile?.assignedSubject || baseClass.paperName || 'Geology';
+    const room = systemSchedule?.room || adminProfile?.assignedRoom || baseClass.room || 'Block C room no 30';
+    const defaultStartTime = systemSchedule?.startTime || baseClass.defaultStartTime || '09:40 AM';
+    const defaultEndTime = systemSchedule?.endTime || baseClass.defaultEndTime || '10:00 AM';
+    const durationMinutes = systemSchedule?.duration || baseClass.durationMinutes || 20;
 
-    const currentAssignment = adminProfile.assignments?.find(a => 
-      a.subject === adminProfile.assignedSubject && 
-      (a.subjectType || 'All') === (adminProfile.assignedSubjectType || 'All')
-    ) || adminProfile.assignments?.[0];
-
-    if (currentAssignment) {
-      return {
-        ...baseClass,
-        name: currentAssignment.subjectType ? `${currentAssignment.subjectType} Course` : baseClass.name,
-        paperName: currentAssignment.subject,
-        room: currentAssignment.room || baseClass.room,
-        defaultStartTime: currentAssignment.startTime || baseClass.defaultStartTime,
-        defaultEndTime: currentAssignment.endTime || baseClass.defaultEndTime,
-        durationMinutes: currentAssignment.duration || baseClass.durationMinutes,
-      };
-    }
-    
-    return baseClass;
-  }, [classes, adminProfile]);
+    return {
+      ...baseClass,
+      name: adminProfile?.assignedSubjectType ? `${adminProfile.assignedSubjectType} Course` : baseClass.name,
+      paperName,
+      room,
+      defaultStartTime,
+      defaultEndTime,
+      durationMinutes,
+    };
+  }, [classes, adminProfile, systemSchedule]);
 
   // Current system clock
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
@@ -291,34 +339,6 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               updatedAt: data.updatedAt || new Date().toISOString(),
             } as Student;
           });
-
-          // Filter by admin's assigned subject if they have one configured.
-          // This ensures only students enrolled in this specific subject (e.g. Geology Minor) can attend.
-          if (adminProfile?.assignedSubject) {
-             const subjectStr = adminProfile.assignedSubject.toLowerCase();
-             
-             // Ignore if admin subject is extremely generic or explicitly 'all'
-             if (subjectStr !== 'all' && subjectStr !== 'all subjects') {
-               list = list.filter(student => {
-                  const studentSubjects = [
-                    student.course || '',
-                    student.major || '',
-                    student.minor || '',
-                    student.mdc || '',
-                    student.vac1 || '',
-                    student.vac2 || '',
-                    student.skills || '',
-                    (student.major || '') + ' major',
-                    (student.minor || '') + ' minor',
-                    (student.mdc || '') + ' mdc',
-                    (student.vac1 || '') + ' vac',
-                    (student.vac2 || '') + ' vac'
-                  ].map(s => s.toLowerCase().trim()).filter(s => s !== '' && s !== 'major' && s !== 'minor' && s !== 'mdc' && s !== 'vac');
-                  
-                  return studentSubjects.some(sub => sub === subjectStr || subjectStr === sub || sub.includes(subjectStr) || subjectStr.includes(sub));
-               });
-             }
-          }
 
           setRawStudents(list);
         }
@@ -493,8 +513,15 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               classId: data.classId || 'core_class',
               className: data.className || '',
               section: data.section || '',
+              subject: data.subject || '',
+              subjectType: data.subjectType || '',
+              room: data.room || '',
               permissions: data.permissions || [],
               status: data.status || 'active',
+              delegatedBy: data.delegatedBy || '',
+              delegatedByType: data.delegatedByType || 'teacher',
+              createdAt: data.createdAt || '',
+              updatedAt: data.updatedAt || '',
             } as CRDelegation;
           });
           setCrDelegations(list);
@@ -532,6 +559,29 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
     );
 
+    // 7. Listen to System Schedule
+    const unsubSchedule = onSnapshot(
+      doc(db, 'system_settings', 'class_schedule'),
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data.startTime && data.endTime) {
+            const updatedSched = {
+              startTime: data.startTime,
+              endTime: data.endTime,
+              duration: Number(data.duration) || 20,
+              room: data.room || 'Block C room no 30',
+            };
+            setSystemSchedule(updatedSched);
+            localStorage.setItem('amc_system_schedule', JSON.stringify(updatedSched));
+          }
+        }
+      },
+      (error) => {
+        console.warn('Schedule listener notice:', error);
+      }
+    );
+
     return () => {
       unsubStudents();
       unsubSessions();
@@ -540,6 +590,7 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       unsubLogs();
       unsubNotifs();
       unsubCR();
+      unsubSchedule();
     };
   }, []);
 

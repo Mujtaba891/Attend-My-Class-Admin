@@ -88,7 +88,7 @@ export const LoginPage: React.FC = () => {
       setErrorMsg('Please provide your institutional email address.');
       return;
     }
-    if (!isLoginMode && !name.trim()) {
+    if (selectedRole !== 'cr' && !isLoginMode && !name.trim()) {
       setErrorMsg('Please provide your name.');
       return;
     }
@@ -97,8 +97,18 @@ export const LoginPage: React.FC = () => {
     setErrorMsg('');
 
     try {
-      if (isLoginMode) {
-        await loginWithEmail(email.trim(), password.trim() || undefined);
+      if (selectedRole === 'cr') {
+        await loginAsFaculty(
+          {
+            name: email.split('@')[0] || 'Class Representative',
+            email: email.trim(),
+            role: 'cr',
+            department: 'Student Academic Council',
+          },
+          password.trim() || undefined
+        );
+      } else if (isLoginMode) {
+        await loginWithEmail(email.trim(), password.trim() || undefined, selectedRole);
       } else {
         await loginAsFaculty(
           {
@@ -226,9 +236,9 @@ export const LoginPage: React.FC = () => {
 
           {/* Form */}
                     <form onSubmit={handleLoginSubmit} className="space-y-5">
-            <div className={`grid grid-cols-1 ${!isLoginMode ? 'md:grid-cols-2' : ''} gap-4 sm:gap-5`}>
+            <div className={`grid grid-cols-1 ${!isLoginMode && selectedRole !== 'cr' ? 'md:grid-cols-2' : ''} gap-4 sm:gap-5`}>
               {/* Name */}
-              {!isLoginMode && (
+              {!isLoginMode && selectedRole !== 'cr' && (
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1.5">
                     {selectedRole === 'teacher' ? 'Teacher / Faculty Full Name' : selectedRole === 'admin' ? 'Administrator Name' : 'Representative Name'}
@@ -267,7 +277,7 @@ export const LoginPage: React.FC = () => {
                 </div>
               </div>
 
-              {!isLoginMode && (
+              {!isLoginMode && selectedRole !== 'cr' && (
                 <>
                   {/* Department */}
                   <div className="md:col-span-2">
@@ -425,7 +435,7 @@ export const LoginPage: React.FC = () => {
               {/* Password / Access Pin */}
               <div className={selectedRole === 'teacher' && !isLoginMode ? 'md:col-span-2' : ''}>
                 <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  Faculty Access PIN / Password
+                  {selectedRole === 'cr' ? 'CR Account Password / PIN' : 'Faculty Access PIN / Password'}
                 </label>
                 <div className="relative">
                   <KeyRound className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
@@ -441,6 +451,30 @@ export const LoginPage: React.FC = () => {
               </div>
             </div>
 
+            {/* CR Permissions Overview Box */}
+            {selectedRole === 'cr' && (
+              <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs space-y-2.5">
+                <div className="flex items-center gap-2 text-amber-400 font-bold">
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>CR Permissions Overview</span>
+                </div>
+                <ul className="space-y-1.5 text-[11px] text-amber-300/90">
+                  <li className="flex items-center gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <span>Can view live active session attendance</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <span>Can view students, but lock / unlock action is disabled</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <span>Can't mark or download attendance or alter data</span>
+                  </li>
+                </ul>
+              </div>
+            )}
+
             {/* Submit Button */}
             <div className="pt-2">
               <button
@@ -453,22 +487,30 @@ export const LoginPage: React.FC = () => {
                   <div className="w-5 h-5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin"></div>
                 ) : (
                   <>
-                    <span>{isLoginMode ? 'Sign In to Academic Platform' : `Enter Academic Platform as ${selectedRole === 'teacher' ? 'Teacher' : selectedRole === 'admin' ? 'Administrator' : 'Class Monitor'}`}</span>
+                    <span>
+                      {selectedRole === 'cr'
+                        ? 'Login as Class Representative'
+                        : isLoginMode
+                        ? 'Sign In to Academic Platform'
+                        : `Enter Academic Platform as ${selectedRole === 'teacher' ? 'Teacher' : 'Administrator'}`}
+                    </span>
                     <ArrowRight className="w-4 h-4" />
                   </>
                 )}
               </button>
             </div>
             
-            <div className="mt-4 text-center">
-              <button
-                type="button"
-                onClick={() => setIsLoginMode(!isLoginMode)}
-                className="text-sm font-medium text-emerald-400 hover:text-emerald-300 transition-colors"
-              >
-                {isLoginMode ? "Don't have an account? Create Profile" : "Already have an account? Login"}
-              </button>
-            </div>
+            {selectedRole !== 'cr' && (
+              <div className="mt-4 text-center">
+                <button
+                  type="button"
+                  onClick={() => setIsLoginMode(!isLoginMode)}
+                  className="text-sm font-medium text-emerald-400 hover:text-emerald-300 transition-colors"
+                >
+                  {isLoginMode ? "Don't have an account? Create Profile" : "Already have an account? Login"}
+                </button>
+              </div>
+            )}
 
             {/* Institutional Sign In Option */}
             <div className="mt-5 text-center">

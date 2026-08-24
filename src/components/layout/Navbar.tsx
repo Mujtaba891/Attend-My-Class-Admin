@@ -229,51 +229,89 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="relative">
           <button
             onClick={() => setShowRoleMenu(!showRoleMenu)}
-            className="flex items-center gap-1.5 sm:gap-2 p-1 sm:p-1.5 sm:pl-2.5 sm:pr-2 rounded-xl sm:bg-slate-800/80 sm:hover:bg-slate-800 sm:border sm:border-slate-700/80 transition-all cursor-pointer"
+            className="flex items-center gap-2 p-1 sm:p-1.5 sm:pl-2 sm:pr-2.5 rounded-xl sm:bg-slate-800/80 sm:hover:bg-slate-800 sm:border sm:border-slate-700/80 transition-all cursor-pointer"
           >
-            <div className="w-7 h-7 sm:hidden rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-300 border border-slate-700">
-              {adminProfile.name.charAt(0).toUpperCase()}
+            <div className="w-8 h-8 rounded-full bg-emerald-950/80 border border-emerald-500/40 flex items-center justify-center text-xs font-bold text-emerald-300 overflow-hidden shrink-0 shadow-inner">
+              {adminProfile.avatarUrl ? (
+                <img src={adminProfile.avatarUrl} alt={adminProfile.name} className="w-full h-full object-cover" />
+              ) : (
+                adminProfile.name ? adminProfile.name.charAt(0).toUpperCase() : 'U'
+              )}
             </div>
             <div className="hidden sm:flex flex-col text-left">
-              <span className="text-xs font-semibold text-slate-100 line-clamp-1 max-w-[160px]">
+              <span className="text-xs font-semibold text-slate-100 line-clamp-1 max-w-[150px]">
                 {adminProfile.name}
               </span>
               <span className="text-[10px] uppercase font-bold text-emerald-400 flex items-center gap-1">
                 <ShieldCheck className="w-2.5 h-2.5" />
-                {currentRole === 'admin' ? 'Administrator' : currentRole === 'teacher' ? 'Faculty' : 'Class Monitor'}
+                {currentRole === 'admin' ? 'Administrator' : currentRole === 'teacher' ? 'Faculty' : 'Class Monitor (CR)'}
               </span>
             </div>
             <ChevronDown className="hidden sm:block w-3 h-3 text-slate-400 ml-0.5" />
           </button>
 
           {showRoleMenu && (
-            <div className="absolute right-0 mt-2 w-72 rounded-xl bg-slate-900 border border-slate-800 shadow-2xl p-3.5 z-50 animate-fadeIn">
-              <div className="pb-3 border-b border-slate-800">
-                <div className="text-xs font-bold text-slate-200">{adminProfile.name}</div>
-                <div className="text-[11px] text-slate-400 mt-0.5">{adminProfile.email}</div>
-                <div className="mt-2 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[10px] font-semibold">
-                  <span>{adminProfile.department || 'Department of Academic Studies'}</span>
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowRoleMenu(false)} />
+              <div className="absolute right-0 mt-2 w-80 rounded-xl bg-slate-900 border border-slate-800 shadow-2xl p-4 z-50 animate-fadeIn">
+                {/* Profile Card Header */}
+                <div className="pb-3 border-b border-slate-800 flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-full bg-emerald-950/80 border-2 border-emerald-500/40 flex items-center justify-center text-lg font-bold text-emerald-300 overflow-hidden shrink-0">
+                    {adminProfile.avatarUrl ? (
+                      <img src={adminProfile.avatarUrl} alt={adminProfile.name} className="w-full h-full object-cover" />
+                    ) : (
+                      adminProfile.name ? adminProfile.name.charAt(0).toUpperCase() : 'U'
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-bold text-slate-100 truncate">{adminProfile.name}</div>
+                    <div className="text-[11px] text-slate-400 truncate">{adminProfile.email}</div>
+                    {adminProfile.rollNumber && adminProfile.role === 'cr' && (
+                      <div className="text-[10px] font-mono text-amber-400 mt-0.5">Roll: {adminProfile.rollNumber}</div>
+                    )}
+                    <div className="mt-1.5 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[10px] font-semibold">
+                      <span>{adminProfile.department || 'Department of Academic Studies'}</span>
+                    </div>
+                  </div>
                 </div>
+
+              {/* View Profile Action Button */}
+              <div className="py-2.5 border-b border-slate-800">
+                <button
+                  onClick={() => {
+                    onNavigate('settings');
+                    setShowRoleMenu(false);
+                  }}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-bold transition-colors cursor-pointer"
+                >
+                  <span>View & Edit My Profile</span>
+                  <ChevronDown className="w-4 h-4 -rotate-90" />
+                </button>
               </div>
 
+              {/* Multi-Subject Switcher */}
               {adminProfile.assignments && adminProfile.assignments.length > 0 ? (
                 <div className="py-2.5 border-b border-slate-800 space-y-1.5 max-h-48 overflow-y-auto">
                   <div className="flex items-center justify-between mb-1">
-                    <div className="text-[10px] uppercase font-bold text-slate-500">Switch Subject Profile</div>
-                    <button 
-                      onClick={() => {
-                        localStorage.setItem('faculty_prefill_email', adminProfile.email);
-                        logout();
-                        setShowRoleMenu(false);
-                      }}
-                      className="p-1 rounded bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors"
-                      title="Add New Subject Profile"
-                    >
-                      <Plus className="w-3 h-3" />
-                    </button>
+                    <div className="text-[10px] uppercase font-bold text-slate-500">
+                      {currentRole === 'cr' ? 'Your Delegated Subjects' : 'Switch Subject Profile'}
+                    </div>
+                    {currentRole !== 'cr' && (
+                      <button 
+                        onClick={() => {
+                          localStorage.setItem('faculty_prefill_email', adminProfile.email);
+                          logout();
+                          setShowRoleMenu(false);
+                        }}
+                        className="p-1 rounded bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+                        title="Add New Subject Profile"
+                      >
+                        <Plus className="w-3 h-3" />
+                      </button>
+                    )}
                   </div>
                   {adminProfile.assignments.map(a => {
-                    const isActive = adminProfile.assignedSubject === a.subject && adminProfile.assignedClass === a.className && (adminProfile.assignedSubjectType || 'All') === (a.subjectType || 'All');
+                    const isActive = adminProfile.assignedSubject === a.subject && adminProfile.assignedClass === a.className;
                     return (
                       <button
                         key={a.id}
@@ -281,22 +319,23 @@ export const Navbar: React.FC<NavbarProps> = ({
                           updateProfile({ assignedSubject: a.subject, assignedSubjectType: a.subjectType || 'All', assignedClass: a.className, assignedRoom: a.room });
                           setShowRoleMenu(false);
                         }}
-                        className={`w-full text-left p-2 rounded-lg border transition-colors ${isActive ? 'bg-blue-500/10 border-blue-500/30' : 'bg-slate-900 border-slate-800 hover:border-slate-700'}`}
+                        className={`w-full text-left p-2 rounded-lg border transition-colors cursor-pointer ${isActive ? 'bg-blue-500/15 border-blue-500/40 text-blue-200' : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 text-slate-300'}`}
                       >
                         <div className="flex items-center justify-between">
-                          <span className={`text-[11px] font-bold ${isActive ? 'text-blue-300' : 'text-slate-200'}`}>{a.subject} {a.subjectType && a.subjectType !== 'All' ? `(${a.subjectType})` : ''}</span>
+                          <span className={`text-[11px] font-bold ${isActive ? 'text-blue-300' : 'text-slate-200'}`}>
+                            {a.subject} {a.subjectType && a.subjectType !== 'All' && a.subjectType !== 'CR Subject' ? `(${a.subjectType})` : ''}
+                          </span>
                           {isActive && <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded-sm bg-blue-500/20 text-blue-400">Active</span>}
                         </div>
                         <div className="text-[10px] text-slate-400 mt-0.5">{a.className} {a.room ? `• ${a.room}` : ''}</div>
                       </button>
-                    )
+                    );
                   })}
                 </div>
               ) : adminProfile.assignedSubject ? (
                 <div className="py-2.5 border-b border-slate-800 text-[11px] text-slate-400 space-y-1">
-                  <div><strong className="text-slate-300">Course:</strong> {adminProfile.assignedSubject} {adminProfile.assignedSubjectType && adminProfile.assignedSubjectType !== 'All' ? `(${adminProfile.assignedSubjectType})` : ''}</div>
+                  <div><strong className="text-slate-300">Course:</strong> {adminProfile.assignedSubject}</div>
                   <div><strong className="text-slate-300">Class:</strong> {adminProfile.assignedClass}</div>
-                  <div><strong className="text-slate-300">Room:</strong> {adminProfile.assignedRoom}</div>
                 </div>
               ) : null}
 
@@ -313,6 +352,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </button>
               </div>
             </div>
+          </>
           )}
         </div>
       </div>

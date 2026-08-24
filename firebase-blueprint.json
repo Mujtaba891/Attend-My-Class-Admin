@@ -163,12 +163,28 @@
         "totalSessions": { "type": "number" }
       },
       "required": ["id", "name", "code", "active"]
+    },
+    "CRDelegation": {
+      "title": "CRDelegation",
+      "description": "Class Representative access delegations",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "maxLength": 150 },
+        "name": { "type": "string", "maxLength": 100 },
+        "classId": { "type": "string", "maxLength": 50 },
+        "className": { "type": "string", "maxLength": 100 },
+        "subject": { "type": "string", "maxLength": 100 },
+        "status": { "type": "string", "enum": ["active", "revoked"] },
+        "delegatedBy": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["email", "status"]
     }
   },
   "firestore": {
     "/admins/{adminId}": {
       "schema": { "$ref": "#/entities/Admin" },
-      "description": "Authorized admin, teacher, and CR users"
+      "description": "Authorized admin and teacher users"
     },
     "/students/{studentId}": {
       "schema": { "$ref": "#/entities/Student" },
@@ -197,6 +213,10 @@
     "/classes/{classId}": {
       "schema": { "$ref": "#/entities/ClassConfig" },
       "description": "Class and subject configuration"
+    },
+    "/crDelegations/{delegationId}": {
+      "schema": { "$ref": "#/entities/CRDelegation" },
+      "description": "Class Representative delegated permissions"
     }
   }
 }

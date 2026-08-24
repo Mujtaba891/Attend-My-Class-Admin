@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Settings, ShieldCheck, Clock, CheckCircle2, Database, Layers, UserCircle, MapPin, Mail, Phone, IdCard, Edit3, LogOut, ArrowRightLeft, Hourglass, Building, X, Camera, Upload, Calendar } from 'lucide-react';
+import { setDoc, doc } from 'firebase/firestore';
+import { db } from '../../firebase';
 import { useAuth } from '../../context/AuthContext';
 import { useAttendance } from '../../context/AttendanceContext';
 import { TeacherProfileCard } from './TeacherProfileCard';
@@ -9,10 +11,14 @@ import { calculateDurationMinutes } from '../../utils/timeUtils';
 
 
 const EditProfileModal = ({ isOpen, onClose, adminProfile, updateProfile }: any) => {
+  const isFaculty = adminProfile.role === 'admin' || adminProfile.role === 'teacher';
   const [name, setName] = useState(adminProfile.name || '');
   const [department, setDepartment] = useState(adminProfile.department || '');
   const [phone, setPhone] = useState(adminProfile.phone || '');
   const [employeeId, setEmployeeId] = useState(adminProfile.employeeId || '');
+  const [rollNumber, setRollNumber] = useState(adminProfile.rollNumber || '');
+  const [semester, setSemester] = useState(adminProfile.semester || 'Semester IV');
+  const [section, setSection] = useState(adminProfile.section || 'A');
   const [designation, setDesignation] = useState(adminProfile.designation || '');
   const [officeLocation, setOfficeLocation] = useState(adminProfile.officeLocation || '');
   const [bio, setBio] = useState(adminProfile.bio || '');
@@ -24,6 +30,9 @@ const EditProfileModal = ({ isOpen, onClose, adminProfile, updateProfile }: any)
       setDepartment(adminProfile.department || '');
       setPhone(adminProfile.phone || '');
       setEmployeeId(adminProfile.employeeId || '');
+      setRollNumber(adminProfile.rollNumber || '');
+      setSemester(adminProfile.semester || 'Semester IV');
+      setSection(adminProfile.section || 'A');
       setDesignation(adminProfile.designation || '');
       setOfficeLocation(adminProfile.officeLocation || '');
       setBio(adminProfile.bio || '');
@@ -46,7 +55,19 @@ const EditProfileModal = ({ isOpen, onClose, adminProfile, updateProfile }: any)
 
   const handleSubmit = (e: any) => {
     e.preventDefault();
-    updateProfile({ name, department, phone, employeeId, designation, officeLocation, bio, avatarUrl });
+    updateProfile({
+      name,
+      department,
+      phone,
+      employeeId: isFaculty ? employeeId : '',
+      rollNumber: !isFaculty ? rollNumber : '',
+      semester: !isFaculty ? semester : '',
+      section: !isFaculty ? section : '',
+      designation: isFaculty ? designation : '',
+      officeLocation: isFaculty ? officeLocation : '',
+      bio,
+      avatarUrl
+    });
     onClose();
   };
 
@@ -102,27 +123,48 @@ const EditProfileModal = ({ isOpen, onClose, adminProfile, updateProfile }: any)
               <label className="block text-[11px] uppercase font-bold text-slate-500 mb-1.5">Full Name <span className="text-rose-500">*</span></label>
               <input type="text" value={name} onChange={e => setName(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" required />
             </div>
+
+            {!isFaculty ? (
+              <>
+                <div>
+                  <label className="block text-[11px] uppercase font-bold text-amber-500 mb-1.5">Student Roll Number</label>
+                  <input type="text" value={rollNumber} onChange={e => setRollNumber(e.target.value)} placeholder="STU-2026-001" className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm text-amber-300 font-mono focus:outline-none focus:border-emerald-500" />
+                </div>
+                <div>
+                  <label className="block text-[11px] uppercase font-bold text-slate-500 mb-1.5">Semester</label>
+                  <input type="text" value={semester} onChange={e => setSemester(e.target.value)} placeholder="Semester IV" className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" />
+                </div>
+                <div>
+                  <label className="block text-[11px] uppercase font-bold text-slate-500 mb-1.5">Section</label>
+                  <input type="text" value={section} onChange={e => setSection(e.target.value)} placeholder="A" className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" />
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-[11px] uppercase font-bold text-slate-500 mb-1.5">Designation / Title</label>
+                  <input type="text" value={designation} onChange={e => setDesignation(e.target.value)} placeholder="e.g. Assistant Professor / Faculty" className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" />
+                </div>
+                <div>
+                  <label className="block text-[11px] uppercase font-bold text-slate-500 mb-1.5">Employee / Faculty ID</label>
+                  <input type="text" value={employeeId} onChange={e => setEmployeeId(e.target.value)} placeholder="GEO-FAC-012" className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" />
+                </div>
+                <div>
+                  <label className="block text-[11px] uppercase font-bold text-slate-500 mb-1.5">Office / Classroom Location</label>
+                  <input type="text" value={officeLocation} onChange={e => setOfficeLocation(e.target.value)} placeholder="e.g. Block C, Room 30" className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" />
+                </div>
+              </>
+            )}
+
             <div>
-              <label className="block text-[11px] uppercase font-bold text-slate-500 mb-1.5">Designation / Title</label>
-              <input type="text" value={designation} onChange={e => setDesignation(e.target.value)} placeholder="e.g. Associate Professor" className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" />
-            </div>
-            <div>
-              <label className="block text-[11px] uppercase font-bold text-slate-500 mb-1.5">Department</label>
+              <label className="block text-[11px] uppercase font-bold text-slate-500 mb-1.5">Department / Course</label>
               <input type="text" value={department} onChange={e => setDepartment(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" />
-            </div>
-            <div>
-              <label className="block text-[11px] uppercase font-bold text-slate-500 mb-1.5">Employee ID</label>
-              <input type="text" value={employeeId} onChange={e => setEmployeeId(e.target.value)} placeholder="GEO-FAC-012" className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" />
             </div>
             <div>
               <label className="block text-[11px] uppercase font-bold text-slate-500 mb-1.5">Phone Number</label>
               <input type="text" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+91 70000 00000" className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" />
             </div>
-            <div>
-              <label className="block text-[11px] uppercase font-bold text-slate-500 mb-1.5">Office Location</label>
-              <input type="text" value={officeLocation} onChange={e => setOfficeLocation(e.target.value)} placeholder="e.g. Block A, Room 102" className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" />
-            </div>
-            
+
             <div className="sm:col-span-2">
               <label className="block text-[11px] uppercase font-bold text-slate-500 mb-1.5">Professional Bio</label>
               <textarea 
@@ -190,7 +232,7 @@ export const SettingsView: React.FC = () => {
     }
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     
     const updatedAssignments = [...(adminProfile.assignments || [])];
@@ -215,9 +257,22 @@ export const SettingsView: React.FC = () => {
     }
 
     updateProfile({ assignments: updatedAssignments });
-    if (activeSession && activeSession.status !== 'closed') {
-      updateSessionTime(startTime, endTime);
-    } else if (activeSession) {
+
+    // Persist schedule system-wide in Firestore
+    try {
+      await setDoc(doc(db, 'system_settings', 'class_schedule'), {
+        startTime,
+        endTime,
+        duration,
+        room,
+        updatedAt: new Date().toISOString(),
+        updatedBy: adminProfile.email || 'Teacher'
+      }, { merge: true });
+    } catch (err) {
+      console.warn('Error saving schedule to Firestore:', err);
+    }
+
+    if (activeSession) {
       updateSessionTime(startTime, endTime);
     }
     
@@ -264,12 +319,20 @@ export const SettingsView: React.FC = () => {
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-3">
               <h2 className="text-2xl font-bold text-slate-100">{adminProfile.name}</h2>
-              <span className="px-2.5 py-1 rounded text-[10px] font-bold bg-emerald-900/40 text-emerald-400 border border-emerald-500/30">
-                {adminProfile.designation || 'Faculty Member'}
+              <span className="px-2.5 py-1 rounded text-[10px] font-bold bg-emerald-900/40 text-emerald-400 border border-emerald-500/30 uppercase">
+                {adminProfile.role === 'cr' ? 'Class Representative (CR)' : (adminProfile.designation || 'Faculty Member')}
               </span>
+              {adminProfile.rollNumber && adminProfile.role === 'cr' && (
+                <span className="px-2.5 py-1 rounded text-[10px] font-mono font-bold bg-amber-500/10 text-amber-300 border border-amber-500/30">
+                  Roll: {adminProfile.rollNumber}
+                </span>
+              )}
             </div>
             <div className="text-sm text-slate-300 font-medium">
               {adminProfile.department || 'Department of Geology'}
+              {adminProfile.role === 'cr' && (adminProfile.semester || adminProfile.section) && (
+                <span className="ml-2 text-xs text-emerald-400 font-semibold">• {adminProfile.semester || 'Semester IV'} (Sec {adminProfile.section || 'A'})</span>
+              )}
             </div>
             <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-400 pt-2">
               <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-950/50 border border-slate-800">
@@ -282,16 +345,16 @@ export const SettingsView: React.FC = () => {
                   {adminProfile.phone}
                 </div>
               )}
-              {adminProfile.employeeId && (
+              {adminProfile.role !== 'cr' && (
                 <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-950/50 border border-slate-800">
-                  <IdCard className="w-3.5 h-3.5 shrink-0" />
-                  ID: {adminProfile.employeeId}
+                  <IdCard className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
+                  ID: {adminProfile.employeeId || 'GEO-FAC-01'}
                 </div>
               )}
-              {adminProfile.officeLocation && (
+              {adminProfile.role !== 'cr' && (
                 <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-950/50 border border-slate-800">
-                  <Building className="w-3.5 h-3.5 shrink-0" />
-                  {adminProfile.officeLocation}
+                  <Building className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
+                  {adminProfile.officeLocation || 'Block C, Room 30'}
                 </div>
               )}
             </div>
@@ -466,16 +529,6 @@ export const SettingsView: React.FC = () => {
                 </div>
               </button>
             </div>
-          </div>
-
-          {/* Classroom Mode Callout */}
-          <div className="p-5 rounded-2xl bg-indigo-950/40 border border-indigo-900/50 shadow-xl space-y-3">
-            <h3 className="text-sm font-bold text-indigo-100">You're in Classroom Mode</h3>
-            <p className="text-xs text-indigo-300/80">Scan QR, take attendance and manage your class in real-time.</p>
-            <button className="w-full py-2.5 mt-2 rounded-lg border border-indigo-500/30 bg-indigo-900/30 hover:bg-indigo-900/50 text-indigo-200 text-xs font-bold flex items-center justify-center gap-2 transition-colors">
-              <ArrowRightLeft className="w-4 h-4" />
-              Switch to Admin Mode
-            </button>
           </div>
 
           {/* Firebase Spark Plan Status */}
