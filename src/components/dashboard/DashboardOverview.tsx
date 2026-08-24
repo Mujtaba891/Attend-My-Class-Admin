@@ -227,7 +227,10 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                     Today’s Attendance QR Session
                   </h3>
                   <p className="text-xs text-slate-400">
-                    Slot: {currentClass.defaultStartTime} – {currentClass.defaultEndTime} ({adminProfile.assignedRoom || currentClass.room})
+                    {isSessionActive || activeSession?.status === 'scheduled'
+                      ? `Active Window: ${activeSession?.startTime} – ${activeSession?.endTime}`
+                      : `Class Schedule Window: ${currentClass.defaultStartTime} – ${currentClass.defaultEndTime}`
+                    } • ({adminProfile.assignedRoom || currentClass.room})
                   </p>
                 </div>
               </div>
@@ -270,8 +273,15 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             {/* Session Time & Security Token info */}
             <div className="p-4 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-400">Session Window:</span>
-                <span className="font-mono text-slate-200 font-semibold">{currentClass.defaultStartTime} – {currentClass.defaultEndTime} ({currentClass.durationMinutes} min)</span>
+                <span className="text-slate-400">
+                  {isSessionActive || activeSession?.status === 'scheduled' ? 'Active Session Window:' : 'Class Schedule Window:'}
+                </span>
+                <span className="font-mono text-slate-200 font-semibold">
+                  {isSessionActive || activeSession?.status === 'scheduled'
+                    ? `${activeSession?.startTime} – ${activeSession?.endTime}`
+                    : `${currentClass.defaultStartTime} – ${currentClass.defaultEndTime}`
+                  } ({currentClass.durationMinutes} min)
+                </span>
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-slate-400">Time Remaining:</span>

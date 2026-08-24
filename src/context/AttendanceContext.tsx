@@ -222,9 +222,9 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (saved) return JSON.parse(saved);
     } catch (e) {}
     return {
-      startTime: '09:40 AM',
-      endTime: '10:00 AM',
-      duration: 20,
+      startTime: '10:00 AM',
+      endTime: '10:40 AM',
+      duration: 40,
       room: 'Block C room no 30',
     };
   });
@@ -232,10 +232,17 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const currentClass = useMemo(() => {
     const baseClass = classes.find(c => c.id === 'core_class') || classes[0];
     const paperName = adminProfile?.assignedSubject || baseClass.paperName || 'Geology';
-    const room = systemSchedule?.room || adminProfile?.assignedRoom || baseClass.room || 'Block C room no 30';
-    const defaultStartTime = systemSchedule?.startTime || baseClass.defaultStartTime || '09:40 AM';
-    const defaultEndTime = systemSchedule?.endTime || baseClass.defaultEndTime || '10:00 AM';
-    const durationMinutes = systemSchedule?.duration || baseClass.durationMinutes || 20;
+    
+    // Check if faculty has a configured assignment for this subject or default assignment
+    const facultyAssignment = adminProfile?.assignments?.find(a => 
+      a.subject === adminProfile.assignedSubject && 
+      (!adminProfile.assignedSubjectType || (a.subjectType || 'All') === adminProfile.assignedSubjectType)
+    ) || adminProfile?.assignments?.[0];
+
+    const defaultStartTime = systemSchedule?.startTime || facultyAssignment?.startTime || baseClass.defaultStartTime || '10:00 AM';
+    const defaultEndTime = systemSchedule?.endTime || facultyAssignment?.endTime || baseClass.defaultEndTime || '10:40 AM';
+    const durationMinutes = systemSchedule?.duration || facultyAssignment?.duration || baseClass.durationMinutes || 40;
+    const room = systemSchedule?.room || facultyAssignment?.room || adminProfile?.assignedRoom || baseClass.room || 'Block C room no 30';
 
     return {
       ...baseClass,
