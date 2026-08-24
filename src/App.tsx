@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AttendanceProvider } from './context/AttendanceContext';
+import { PWAProvider, usePWA } from './context/PWAContext';
 import { LoginPage } from './components/auth/LoginPage';
 import { Navbar } from './components/layout/Navbar';
 import { Sidebar } from './components/layout/Sidebar';
@@ -19,16 +20,29 @@ import { MonthlyReportsView } from './components/reports/MonthlyReportsView';
 import { ActivityLogsView } from './components/logs/ActivityLogsView';
 import { NotificationsView } from './components/notifications/NotificationsView';
 import { SettingsView } from './components/settings/SettingsView';
+import { PwaInstallBanner } from './components/pwa/PwaInstallBanner';
+import { PwaUpdateToast } from './components/pwa/PwaUpdateToast';
+import { OfflineIndicator } from './components/pwa/OfflineIndicator';
+import { IOSInstallModal } from './components/pwa/IOSInstallModal';
 
 const AppContent: React.FC = () => {
   const { isAuthenticated } = useAuth();
+  const { showIOSGuide, setShowIOSGuide } = usePWA();
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [isClassroomDisplayOpen, setIsClassroomDisplayOpen] = useState<boolean>(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
 
   // If faculty/admin is not authenticated, show the login page
   if (!isAuthenticated) {
-    return <LoginPage />;
+    return (
+      <>
+        <OfflineIndicator />
+        <LoginPage />
+        <PwaInstallBanner />
+        <PwaUpdateToast />
+        <IOSInstallModal isOpen={showIOSGuide} onClose={() => setShowIOSGuide(false)} />
+      </>
+    );
   }
 
   const renderActiveView = () => {
@@ -78,6 +92,9 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="h-screen w-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500/30 selection:text-emerald-200 overflow-hidden">
+      {/* Offline Status Warning Indicator */}
+      <OfflineIndicator />
+
       {/* Top Navigation Bar */}
       <Navbar
         onOpenClassroomDisplay={() => setIsClassroomDisplayOpen(true)}
@@ -116,16 +133,24 @@ const AppContent: React.FC = () => {
       {isClassroomDisplayOpen && (
         <ClassroomDisplayMode onClose={() => setIsClassroomDisplayOpen(false)} />
       )}
+
+      {/* PWA Floating Components */}
+      <PwaInstallBanner />
+      <PwaUpdateToast />
+      <IOSInstallModal isOpen={showIOSGuide} onClose={() => setShowIOSGuide(false)} />
     </div>
   );
 };
 
 export default function App() {
   return (
-    <AuthProvider>
-      <AttendanceProvider>
-        <AppContent />
-      </AttendanceProvider>
-    </AuthProvider>
+    <PWAProvider>
+      <AuthProvider>
+        <AttendanceProvider>
+          <AppContent />
+        </AttendanceProvider>
+      </AuthProvider>
+    </PWAProvider>
   );
 }
+

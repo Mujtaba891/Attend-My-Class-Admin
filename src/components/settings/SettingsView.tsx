@@ -7,6 +7,7 @@ import { useAttendance } from '../../context/AttendanceContext';
 import { TeacherProfileCard } from './TeacherProfileCard';
 import { CRDelegationCard } from './CRDelegationCard';
 import { TimePickerModal } from '../common/TimePickerModal';
+import { PwaSettingsCard } from '../pwa/PwaSettingsCard';
 import { calculateDurationMinutes } from '../../utils/timeUtils';
 
 
@@ -189,7 +190,7 @@ const EditProfileModal = ({ isOpen, onClose, adminProfile, updateProfile }: any)
 
 export const SettingsView: React.FC = () => {
   const { adminProfile, isMasterAdmin, logout, updateProfile } = useAuth();
-  const { updateSessionTime, activeSession } = useAttendance();
+  const { updateSessionTime, updateSystemSchedule, activeSession } = useAttendance();
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [startTime, setStartTime] = useState('12:00 PM');
   const [endTime, setEndTime] = useState('12:10 PM');
@@ -235,42 +236,40 @@ export const SettingsView: React.FC = () => {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const updatedAssignments = [...(adminProfile.assignments || [])];
-    const index = updatedAssignments.findIndex(a => 
-      a.subject === adminProfile.assignedSubject && 
-      (a.subjectType || 'All') === (adminProfile.assignedSubjectType || 'All')
-    );
-    
-    if (index >= 0) {
-      updatedAssignments[index] = { ...updatedAssignments[index], startTime, endTime, duration, room };
+    let updatedAssignments = [...(adminProfile.assignments || [])];
+    if (updatedAssignments.length > 0) {
+      const index = updatedAssignments.findIndex(a => 
+        a.subject === adminProfile.assignedSubject || 
+        (a.subjectType || 'All') === (adminProfile.assignedSubjectType || 'All')
+      );
+      const targetIdx = index >= 0 ? index : 0;
+      updatedAssignments[targetIdx] = { 
+        ...updatedAssignments[targetIdx], 
+        startTime, 
+        endTime, 
+        duration, 
+        room,
+        subject: adminProfile.assignedSubject || updatedAssignments[targetIdx].subject
+      };
     } else {
-      updatedAssignments.push({
+      updatedAssignments = [{
         id: `assign_${Date.now()}`,
-        subject: adminProfile.assignedSubject || 'Core Subject',
+        subject: adminProfile.assignedSubject || 'Geology',
         subjectType: adminProfile.assignedSubjectType || 'Major',
-        className: adminProfile.assignedClass || 'Semester IV',
+        className: adminProfile.assignedClass || 'Semester I - Section A',
         room,
         startTime,
         endTime,
         duration
-      });
+      }];
     }
 
-    updateProfile({ assignments: updatedAssignments });
+    updateProfile({ 
+      assignments: updatedAssignments,
+      assignedRoom: room
+    });
 
-    // Persist schedule system-wide in Firestore
-    try {
-      await setDoc(doc(db, 'system_settings', 'class_schedule'), {
-        startTime,
-        endTime,
-        duration,
-        room,
-        updatedAt: new Date().toISOString(),
-        updatedBy: adminProfile.email || 'Teacher'
-      }, { merge: true });
-    } catch (err) {
-      console.warn('Error saving schedule to Firestore:', err);
-    }
+    updateSystemSchedule({ startTime, endTime, duration, room });
 
     if (activeSession) {
       updateSessionTime(startTime, endTime);
@@ -598,6 +597,10 @@ export const SettingsView: React.FC = () => {
           <CRDelegationCard />
         </div>
       </div>
+
+      {/* PWA & Installation Settings Card */}
+      <PwaSettingsCard />
+
       <EditProfileModal isOpen={isEditProfileOpen} onClose={() => setIsEditProfileOpen(false)} adminProfile={adminProfile} updateProfile={updateProfile} />
       
       {/* 1-Click Time Picker Modal */}

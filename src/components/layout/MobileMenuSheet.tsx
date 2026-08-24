@@ -18,9 +18,11 @@ import {
   LogOut,
   Sparkles,
   LucideIcon,
+  Download,
 } from 'lucide-react';
 import { useAttendance } from '../../context/AttendanceContext';
 import { useAuth } from '../../context/AuthContext';
+import { usePWA } from '../../context/PWAContext';
 
 interface MenuItem {
   id: string;
@@ -61,6 +63,7 @@ export const MobileMenuSheet: React.FC<MobileMenuSheetProps> = ({
   } = useAttendance();
 
   const { adminProfile, currentRole, logout } = useAuth();
+  const { isInstallable, isStandalone, isIOS, promptInstall, setShowIOSGuide } = usePWA();
 
   if (!isOpen) return null;
 
@@ -236,6 +239,35 @@ export const MobileMenuSheet: React.FC<MobileMenuSheetProps> = ({
               </div>
             );
           })}
+
+          {/* PWA App Install Banner (if not running in standalone mode) */}
+          {!isStandalone && (
+            <div className="bg-gradient-to-r from-emerald-950/40 to-teal-950/40 rounded-2xl border border-emerald-500/30 p-3.5 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+                    <Download className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-slate-100">Install Mobile App</div>
+                    <div className="text-[10px] text-emerald-400">Works offline with fast launch</div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    if (isIOS) {
+                      setShowIOSGuide(true);
+                    } else {
+                      promptInstall();
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-md transition-all active:scale-95 cursor-pointer"
+                >
+                  Install
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* User Profile & Sign Out */}
           <div className="bg-slate-950/80 rounded-2xl border border-slate-800 p-3.5 space-y-2.5">

@@ -56,6 +56,7 @@ interface AttendanceContextType {
   closeSessionManually: () => void;
   extendSession: (extraMinutes: number) => void;
   updateSessionTime: (startTimeStr: string, endTimeStr: string) => void;
+  updateSystemSchedule: (newSched: { startTime: string; endTime: string; duration: number; room: string }) => void;
   regenerateToken: () => void;
   markAttendance: (studentId: string, status: AttendanceStatus, notes?: string, method?: AttendanceMethod) => void;
   bulkMarkStatus: (status: AttendanceStatus, targetIds?: string[]) => void;
@@ -235,14 +236,15 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     
     // Check if faculty has a configured assignment for this subject or default assignment
     const facultyAssignment = adminProfile?.assignments?.find(a => 
-      a.subject === adminProfile.assignedSubject && 
-      (!adminProfile.assignedSubjectType || (a.subjectType || 'All') === adminProfile.assignedSubjectType)
+      a.subject === adminProfile.assignedSubject ||
+      (a.subjectType && adminProfile.assignedSubjectType && a.subjectType === adminProfile.assignedSubjectType)
     ) || adminProfile?.assignments?.[0];
 
-    const defaultStartTime = systemSchedule?.startTime || facultyAssignment?.startTime || baseClass.defaultStartTime || '10:00 AM';
-    const defaultEndTime = systemSchedule?.endTime || facultyAssignment?.endTime || baseClass.defaultEndTime || '10:40 AM';
-    const durationMinutes = systemSchedule?.duration || facultyAssignment?.duration || baseClass.durationMinutes || 40;
-    const room = systemSchedule?.room || facultyAssignment?.room || adminProfile?.assignedRoom || baseClass.room || 'Block C room no 30';
+    // Priority: facultyAssignment > systemSchedule > baseClass defaults
+    const defaultStartTime = facultyAssignment?.startTime || systemSchedule?.startTime || baseClass.defaultStartTime || '10:00 AM';
+    const defaultEndTime = facultyAssignment?.endTime || systemSchedule?.endTime || baseClass.defaultEndTime || '10:40 AM';
+    const durationMinutes = facultyAssignment?.duration || systemSchedule?.duration || baseClass.durationMinutes || 40;
+    const room = facultyAssignment?.room || adminProfile?.assignedRoom || systemSchedule?.room || baseClass.room || 'Block C room no 30';
 
     return {
       ...baseClass,
@@ -1123,6 +1125,22 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
     });
   }, [activeSession, adminProfile, addActivityLog]);
 
+  const updateSystemSchedule = useCallback(async (newSched: { startTime: string; endTime: string; duration: number; room: string }) => {
+    setSystemSchedule(newSched);
+    try {
+      localStorage.setItem('amc_system_schedule', JSON.stringify(newSched));
+    } catch (e) {}
+    try {
+      await setDoc(doc(db, 'system_settings', 'class_schedule'), {
+        ...newSched,
+        updatedAt: new Date().toISOString(),
+        updatedBy: adminProfile?.email || 'Teacher'
+      }, { merge: true });
+    } catch (err) {
+      console.warn('Error saving system schedule to Firestore:', err);
+    }
+  }, [adminProfile]);
+
   // Regenerate security token
   const regenerateToken = useCallback(async () => {
     if (!activeSession) return;
@@ -1918,6 +1936,7 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
         closeSessionManually,
         extendSession,
         updateSessionTime,
+        updateSystemSchedule,
         regenerateToken,
         markAttendance,
         bulkMarkStatus,
