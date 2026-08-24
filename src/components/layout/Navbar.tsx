@@ -82,7 +82,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="flex items-center gap-2">
               <span className="hidden sm:block text-sm sm:text-base font-bold text-white tracking-tight">Attend My Class</span>
               <span className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                {currentRole === 'admin' ? 'Admin' : currentRole === 'teacher' ? 'Faculty' : 'CR'}
+                {currentRole === 'cr' ? 'CR' : 'Faculty'}
               </span>
             </div>
             <p className="text-[11px] sm:text-xs text-slate-400 hidden sm:block">
@@ -244,7 +244,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               </span>
               <span className="text-[10px] uppercase font-bold text-emerald-400 flex items-center gap-1">
                 <ShieldCheck className="w-2.5 h-2.5" />
-                {currentRole === 'admin' ? 'Administrator' : currentRole === 'teacher' ? 'Faculty' : 'Class Monitor (CR)'}
+                {currentRole === 'cr' ? 'Class Monitor (CR)' : 'Faculty Member'}
               </span>
             </div>
             <ChevronDown className="hidden sm:block w-3 h-3 text-slate-400 ml-0.5" />

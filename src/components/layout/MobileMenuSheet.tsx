@@ -249,7 +249,7 @@ export const MobileMenuSheet: React.FC<MobileMenuSheetProps> = ({
                   <div className="text-[11px] text-slate-400 flex items-center gap-1">
                     <ShieldCheck className="w-3 h-3 text-emerald-400" />
                     <span className="uppercase text-[10px] font-bold text-emerald-400">
-                      {currentRole === 'admin' ? 'Administrator' : currentRole === 'teacher' ? 'Faculty' : 'Class Monitor'}
+                      {currentRole === 'cr' ? 'Class Monitor' : 'Faculty Member'}
                     </span>
                   </div>
                 </div>

@@ -4,6 +4,7 @@ import { collection, addDoc, serverTimestamp, doc, deleteDoc, query, where, getD
 import { db } from '../../firebase';
 import { useAuth } from '../../context/AuthContext';
 import { useAttendance } from '../../context/AttendanceContext';
+import { ConfirmationModal } from '../common/ConfirmationModal';
 
 export const CRDelegationCard: React.FC = () => {
   const { adminProfile, currentRole } = useAuth();
@@ -12,6 +13,9 @@ export const CRDelegationCard: React.FC = () => {
   const [isSaved, setIsSaved] = useState(false);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [revokeTarget, setRevokeTarget] = useState<{ id: string; email: string } | null>(null);
+  const [isRevoking, setIsRevoking] = useState(false);
+  const [revokeMessage, setRevokeMessage] = useState('');
 
   const activeSubjectName = (adminProfile?.assignedSubject || 'Geology').trim();
   const activeSubjectType = (adminProfile?.assignedSubjectType || 'MDC').trim();
@@ -101,8 +105,11 @@ export const CRDelegationCard: React.FC = () => {
     }
   };
 
-  const handleRevokeCR = async (id: string, email: string) => {
-    if (!window.confirm(`Are you sure you want to revoke CR access for ${email} from ${activeSubjectName} (${activeSubjectType})?`)) return;
+  const executeRevokeCR = async () => {
+    if (!revokeTarget) return;
+    const { id, email } = revokeTarget;
+    setIsRevoking(true);
+    setError('');
     try {
       // 1. Remove delegation record from crDelegations
       await deleteDoc(doc(db, 'crDelegations', id));
@@ -127,8 +134,15 @@ export const CRDelegationCard: React.FC = () => {
       } catch (studentErr) {
         console.warn('Notice updating CR tag on student record:', studentErr);
       }
+
+      setRevokeMessage(`Revoked CR access for ${email}`);
+      setTimeout(() => setRevokeMessage(''), 4000);
     } catch (err) {
       console.error('Failed to revoke CR:', err);
+      setError('Failed to revoke CR access. Please try again.');
+    } finally {
+      setIsRevoking(false);
+      setRevokeTarget(null);
     }
   };
 
@@ -179,9 +193,9 @@ export const CRDelegationCard: React.FC = () => {
                 </div>
                 <button
                   type="button"
-                  onClick={() => handleRevokeCR(cr.id, cr.email)}
+                  onClick={() => setRevokeTarget({ id: cr.id, email: cr.email })}
                   title="Revoke CR Access"
-                  className="p-1.5 rounded-lg text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-colors shrink-0"
+                  className="p-2 rounded-lg text-rose-400 hover:text-rose-200 hover:bg-rose-500/20 active:scale-95 transition-all shrink-0 cursor-pointer border border-rose-500/20"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -193,6 +207,12 @@ export const CRDelegationCard: React.FC = () => {
         <div className="p-3 rounded-xl bg-slate-950/40 border border-slate-800/80 text-[11px] text-slate-400 italic">
           No Class Representative assigned yet for <span className="text-slate-200 font-medium">{activeSubjectName} ({activeSubjectType})</span>.
         </div>
+      )}
+
+      {revokeMessage && (
+        <p className="text-emerald-400 text-[11px] font-semibold flex items-center gap-1.5 p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+          <CheckCircle2 className="w-4 h-4" /> {revokeMessage}
+        </p>
       )}
 
       <form onSubmit={handleSave} className="space-y-4 pt-1">
@@ -246,6 +266,18 @@ export const CRDelegationCard: React.FC = () => {
           </ul>
         </div>
       </form>
+
+      <ConfirmationModal
+        isOpen={!!revokeTarget}
+        onClose={() => setRevokeTarget(null)}
+        onConfirm={executeRevokeCR}
+        title="Revoke CR Access"
+        message={`Are you sure you want to revoke Class Representative (CR) access for ${revokeTarget?.email || ''} from ${activeSubjectName} (${activeSubjectType})?`}
+        confirmText="Revoke Access"
+        cancelText="Cancel"
+        variant="danger"
+        isLoading={isRevoking}
+      />
     </div>
   );
 };

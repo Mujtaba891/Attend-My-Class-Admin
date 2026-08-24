@@ -79,11 +79,6 @@ export const StatusBadge: React.FC<BadgeProps> = ({ status, variant = 'attendanc
   if (variant === 'role') {
     switch (status) {
       case 'admin':
-        return (
-          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold bg-purple-500/15 text-purple-300 border border-purple-500/30 whitespace-nowrap ${className}`}>
-            HOD / Admin
-          </span>
-        );
       case 'teacher':
         return (
           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold bg-blue-500/15 text-blue-300 border border-blue-500/30 whitespace-nowrap ${className}`}>

@@ -73,9 +73,7 @@ export const LoginPage: React.FC = () => {
   const handleRoleChange = (role: UserRole) => {
     setSelectedRole(role);
     setErrorMsg('');
-    if (role === 'admin') {
-      setDepartment('Central College Administration & Academic Office');
-    } else if (role === 'teacher') {
+    if (role === 'teacher') {
       setDepartment('Department of Academic Sciences');
     } else {
       setDepartment('Student Academic Council');
@@ -164,7 +162,7 @@ export const LoginPage: React.FC = () => {
             <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
               Select Your Access Level
             </label>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* Teacher Tab */}
               <button
                 type="button"
@@ -180,28 +178,8 @@ export const LoginPage: React.FC = () => {
                   <GraduationCap className="w-5 h-5" />
                 </div>
                 <div>
-                  <div className="text-sm font-bold">Subject Teacher</div>
-                  <div className="text-[11px] text-slate-400">Class & Course Faculty</div>
-                </div>
-              </button>
-
-              {/* Admin Tab */}
-              <button
-                type="button"
-                id="role-btn-admin"
-                onClick={() => handleRoleChange('admin')}
-                className={`flex items-center gap-3 p-3.5 rounded-xl border text-left transition-all ${
-                  selectedRole === 'admin'
-                    ? 'bg-blue-500/15 border-blue-500/50 text-white ring-1 ring-blue-500/30'
-                    : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
-                }`}
-              >
-                <div className={`p-2 rounded-lg ${selectedRole === 'admin' ? 'bg-blue-500 text-slate-950' : 'bg-slate-800 text-slate-400'}`}>
-                  <ShieldCheck className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="text-sm font-bold">Administrator</div>
-                  <div className="text-[11px] text-slate-400">HOD & College Office</div>
+                  <div className="text-sm font-bold">Faculty / Teacher</div>
+                  <div className="text-[11px] text-slate-400">Subject Faculty & Course Admin</div>
                 </div>
               </button>
 
@@ -220,8 +198,8 @@ export const LoginPage: React.FC = () => {
                   <Users className="w-5 h-5" />
                 </div>
                 <div>
-                  <div className="text-sm font-bold">Class Representative</div>
-                  <div className="text-[11px] text-slate-400">Live Monitor & Display</div>
+                  <div className="text-sm font-bold">Student / Class Representative</div>
+                  <div className="text-[11px] text-slate-400">Class Monitor & Live Display</div>
                 </div>
               </button>
             </div>
@@ -241,7 +219,7 @@ export const LoginPage: React.FC = () => {
               {!isLoginMode && selectedRole !== 'cr' && (
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                    {selectedRole === 'teacher' ? 'Teacher / Faculty Full Name' : selectedRole === 'admin' ? 'Administrator Name' : 'Representative Name'}
+                    {selectedRole === 'teacher' ? 'Teacher / Faculty Full Name' : 'Representative Name'}
                   </label>
                   <div className="relative">
                     <GraduationCap className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />

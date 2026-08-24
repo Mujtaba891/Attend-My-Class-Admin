@@ -8,14 +8,32 @@ import {
   updateProfile as updateFirebaseProfile,
   signOut as firebaseSignOut,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc, deleteDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db, googleProvider } from '../firebase';
 import { AdminUser, UserRole, TeachingAssignment } from '../types';
+
+function sanitizeFirestoreData<T extends Record<string, any>>(data: T): T {
+  if (!data || typeof data !== 'object') return data;
+  const clean: any = Array.isArray(data) ? [] : {};
+  for (const [key, value] of Object.entries(data)) {
+    if (value !== undefined) {
+      if (value && typeof value === 'object' && !(value instanceof Date)) {
+        clean[key] = sanitizeFirestoreData(value);
+      } else {
+        clean[key] = value;
+      }
+    }
+  }
+  return clean as T;
+}
 
 async function enrichCRProfileWithFirestoreData(email: string, baseProfile: AdminUser): Promise<AdminUser> {
   let enriched = { ...baseProfile };
   const cleanEmail = (email || baseProfile.email || '').trim().toLowerCase();
-  if (!cleanEmail) return enriched;
+  if (!cleanEmail) return sanitizeFirestoreData(enriched);
+
+  const isMasterAdmin = cleanEmail === 'mujtabaalam010@gmail.com';
+  const isFacultyAccount = isMasterAdmin || baseProfile.role === 'teacher' || baseProfile.role === 'admin';
 
   try {
     // 1. Fetch CR delegations from 'crDelegations' collection
@@ -36,24 +54,8 @@ async function enrichCRProfileWithFirestoreData(email: string, baseProfile: Admi
       studentData = studentSnap.docs[0].data();
     }
 
-    // IF USER IS TEACHER OR ADMIN (and role is NOT explicitly 'cr'):
-    if (baseProfile.role === 'teacher' || baseProfile.role === 'admin') {
-      enriched = {
-        ...baseProfile,
-        rollNumber: undefined,
-        semester: undefined,
-        section: undefined,
-        designation: baseProfile.designation || 'Assistant Professor / Faculty Member',
-        employeeId: baseProfile.employeeId || 'GEO-FAC-01',
-        officeLocation: baseProfile.officeLocation || 'Block C, Room 30',
-      };
-      return enriched;
-    }
-
-    // IF USER IS CR / STUDENT:
-    const isCRUser = baseProfile.role === 'cr' || crDelegationsList.length > 0;
-
-    if (studentData || crDelegationsList.length > 0 || isCRUser) {
+    // CASE A: USER HAS ACTIVE CR DELEGATION(S) IN 'crDelegations' COLLECTION
+    if (!isFacultyAccount && crDelegationsList.length > 0) {
       const name = studentData?.fullName || studentData?.name || (baseProfile.name && baseProfile.name !== 'Faculty User' ? baseProfile.name : '') || 'Class Representative';
       const avatarUrl = studentData?.photoUrl || studentData?.avatarUrl || baseProfile.avatarUrl;
       const semester = studentData?.semester || baseProfile.semester || 'Semester I';
@@ -63,31 +65,22 @@ async function enrichCRProfileWithFirestoreData(email: string, baseProfile: Admi
       const course = studentData?.course || studentData?.major || 'B.Sc. Academic Program';
 
       const primaryDel = crDelegationsList[0];
-      const activeSubject = primaryDel?.subject || baseProfile.assignedSubject || studentMajor || 'Geology';
-      const activeSubjectType = primaryDel?.subjectType || baseProfile.assignedSubjectType || 'MDC';
-      const activeClass = primaryDel?.className || baseProfile.assignedClass || `${semester} - Section ${section}`;
-      const activeRoom = primaryDel?.room || baseProfile.assignedRoom || 'Block C room no 30';
+      const activeSubject = primaryDel?.subject || studentMajor || 'Geology';
+      const activeSubjectType = primaryDel?.subjectType || 'MDC';
+      const activeClass = primaryDel?.className || `${semester} - Section ${section}`;
+      const activeRoom = primaryDel?.room || 'Block C room no 30';
 
-      let assignments: TeachingAssignment[] = crDelegationsList.map(cr => ({
+      const assignments: TeachingAssignment[] = crDelegationsList.map(cr => ({
         id: cr.id,
-        subject: cr.subject || cr.className || studentMajor,
+        subject: cr.subject || studentMajor,
         subjectType: cr.subjectType || 'MDC',
         className: cr.className || `${semester} - Section ${section}`,
         room: cr.room || 'Block C room no 30'
       }));
 
-      if (assignments.length === 0) {
-        assignments = (baseProfile.assignments && baseProfile.assignments.length > 0) ? baseProfile.assignments : [{
-          id: `assign_${Date.now()}`,
-          subject: activeSubject,
-          subjectType: activeSubjectType,
-          className: activeClass,
-          room: activeRoom
-        }];
-      }
-
+      const { employeeId, officeLocation, designation, ...rest } = baseProfile as any;
       enriched = {
-        ...baseProfile,
+        ...rest,
         name: name,
         avatarUrl: avatarUrl || baseProfile.avatarUrl,
         rollNumber: rollNumber,
@@ -101,15 +94,51 @@ async function enrichCRProfileWithFirestoreData(email: string, baseProfile: Admi
         assignments: assignments,
         role: 'cr',
         permissions: ['view_sessions', 'mark_live_attendance', 'view_board', 'classroom_display', 'view_students'],
-        employeeId: undefined,
-        officeLocation: undefined,
-        designation: undefined,
       };
+      return sanitizeFirestoreData(enriched);
     }
+
+    // CASE B: USER IS A STUDENT (in 'students' collection) OR WAS CR, BUT HAS NO ACTIVE CR DELEGATION
+    if (!isFacultyAccount && (!studentSnap.empty || baseProfile.role === 'cr' || baseProfile.department === 'Student Academic Council')) {
+      const name = studentData?.fullName || studentData?.name || baseProfile.name || 'Student';
+      const semester = studentData?.semester || baseProfile.semester || 'Semester I';
+      const section = studentData?.section || baseProfile.section || 'A';
+      const rollNumber = studentData?.rollNumber || studentData?.studentId || baseProfile.rollNumber || 'ST-2026';
+      const course = studentData?.course || studentData?.major || 'B.Sc. Academic Program';
+
+      const { employeeId, officeLocation, designation, ...rest } = baseProfile as any;
+      enriched = {
+        ...rest,
+        name: name,
+        rollNumber: rollNumber,
+        semester: semester,
+        section: section,
+        department: course,
+        role: 'cr',
+        assignedSubject: studentData?.major || 'Geology',
+        assignedSubjectType: 'MDC',
+        assignedClass: `${semester} - Section ${section}`,
+        assignedRoom: 'Block C room no 30',
+        assignments: [],
+        permissions: [], // NO TEACHER/ADMIN PERMISSIONS FOR UNASSIGNED STUDENTS
+      };
+      return sanitizeFirestoreData(enriched);
+    }
+
+    // CASE C: TEACHER / FACULTY PROFILE (Non-student users or faculty accounts)
+    const { rollNumber, semester, section, ...rest } = baseProfile as any;
+    enriched = {
+      ...rest,
+      role: 'teacher',
+      designation: baseProfile.designation || 'Assistant Professor / Faculty Member',
+      employeeId: baseProfile.employeeId || 'GEO-FAC-01',
+      officeLocation: baseProfile.officeLocation || 'Block C, Room 30',
+      permissions: ['all', 'manage_students', 'manage_sessions', 'lock_accounts', 'approve_corrections', 'view_reports', 'manage_devices', 'system_config', 'mark_attendance', 'view_students'],
+    };
   } catch (err) {
     console.warn('CR Profile enrichment notice:', err);
   }
-  return enriched;
+  return sanitizeFirestoreData(enriched);
 }
 
 export interface FacultyLoginPayload {
@@ -248,17 +277,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             
             // Sync role to Firestore if updated
             if (data.role !== enriched.role) {
-              await setDoc(userDocRef, { role: enriched.role, lastLoginAt: new Date().toISOString() }, { merge: true });
+              await setDoc(userDocRef, sanitizeFirestoreData({ role: enriched.role, lastLoginAt: new Date().toISOString() }), { merge: true });
+            }
+
+            if (enriched.role === 'teacher' || enriched.role === 'admin') {
+              await setDoc(doc(db, 'admins', firebaseUser.uid), sanitizeFirestoreData({ ...enriched, lastLoginAt: new Date().toISOString() }), { merge: true });
+            } else {
+              try {
+                await deleteDoc(doc(db, 'admins', firebaseUser.uid));
+              } catch (e) {}
             }
 
             setAdminProfile(enriched);
             setCurrentRole(enriched.role);
           } else {
             // Document does not exist in Firestore, create it
-            const defaultRole: UserRole = isMasterAdmin ? 'admin' : 'teacher';
-            const permissions = defaultRole === 'admin'
-              ? ['all', 'manage_students', 'manage_sessions', 'lock_accounts', 'approve_corrections', 'view_reports', 'manage_devices', 'system_config']
-              : ['manage_sessions', 'mark_attendance', 'approve_corrections', 'view_reports', 'view_students'];
+            const defaultRole: UserRole = 'teacher';
+            const permissions = ['all', 'manage_students', 'manage_sessions', 'lock_accounts', 'approve_corrections', 'view_reports', 'manage_devices', 'system_config', 'mark_attendance', 'view_students'];
 
             const newDoc: AdminUser = {
               uid: firebaseUser.uid,
@@ -287,9 +322,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             };
 
             const enriched = await enrichCRProfileWithFirestoreData(firebaseUser.email || '', newDoc);
-            await setDoc(userDocRef, { ...enriched, lastLoginAt: new Date().toISOString() }, { merge: true });
+            const cleanPayload = sanitizeFirestoreData({ ...enriched, lastLoginAt: new Date().toISOString() });
+            await setDoc(userDocRef, cleanPayload, { merge: true });
             if (enriched.role === 'admin' || enriched.role === 'teacher') {
-              await setDoc(doc(db, 'admins', firebaseUser.uid), { ...enriched, lastLoginAt: new Date().toISOString() }, { merge: true });
+              await setDoc(doc(db, 'admins', firebaseUser.uid), cleanPayload, { merge: true });
+            } else {
+              try {
+                await deleteDoc(doc(db, 'admins', firebaseUser.uid));
+              } catch (e) {}
             }
 
             setAdminProfile(enriched);
@@ -316,7 +356,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loginWithEmail = async (email: string, passwordInput?: string, targetRole?: UserRole) => {
     setIsLoading(true);
     const pass = passwordInput && passwordInput.length >= 6 ? passwordInput : 'College@2026';
+    const cleanEmail = (email || '').trim().toLowerCase();
+    const isMasterAdmin = cleanEmail === 'mujtabaalam010@gmail.com';
+
     try {
+      // Security Check: Verify if email belongs to a student or CR
+      const studentQ = query(collection(db, 'students'), where('email', '==', cleanEmail));
+      const studentSnap = await getDocs(studentQ);
+      const isRegisteredStudent = !studentSnap.empty && !isMasterAdmin;
+
+      const crQ = query(collection(db, 'crDelegations'), where('email', '==', cleanEmail));
+      const crSnap = await getDocs(crQ);
+      const hasCRDelegation = !crSnap.empty;
+
+      if (!isMasterAdmin && (targetRole === 'teacher' || (!targetRole && (isRegisteredStudent || hasCRDelegation))) && (isRegisteredStudent || hasCRDelegation)) {
+        throw new Error(`Access Denied: ${cleanEmail} is registered as a Student in the institutional database. Students cannot log in as Faculty/Teacher.`);
+      }
+
+      if (targetRole === 'cr' && !hasCRDelegation) {
+        throw new Error(`Access Denied: No active Class Representative (CR) delegation found in system for ${cleanEmail}. Please ask your faculty member to grant CR delegation.`);
+      }
+
       const cred = await signInWithEmailAndPassword(auth, email, pass);
       const firebaseUser = cred.user;
       
@@ -324,9 +384,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const userDoc = await getDoc(userDocRef);
       const adminDocRef = doc(db, 'admins', firebaseUser.uid);
       const adminSnap = await getDoc(adminDocRef);
-
-      const cleanEmail = (email || firebaseUser.email || '').trim().toLowerCase();
-      const isMasterAdmin = cleanEmail === 'mujtabaalam010@gmail.com';
 
       if (userDoc.exists()) {
         const data = userDoc.data();
@@ -354,9 +411,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } as any;
         
         const enriched = await enrichCRProfileWithFirestoreData(email, adminData);
-        await setDoc(userDocRef, { ...enriched, role: enriched.role, lastLoginAt: new Date().toISOString() }, { merge: true });
+        if (targetRole === 'cr' && enriched.role !== 'cr') {
+          throw new Error(`Access Denied: No active Class Representative (CR) delegation found in system for ${cleanEmail}. Please ask your faculty member to grant CR delegation.`);
+        }
+        const cleanPayload = sanitizeFirestoreData({ ...enriched, role: enriched.role, lastLoginAt: new Date().toISOString() });
+        await setDoc(userDocRef, cleanPayload, { merge: true });
         if (enriched.role === 'admin' || enriched.role === 'teacher') {
-          await setDoc(doc(db, 'admins', firebaseUser.uid), { ...enriched, role: enriched.role, lastLoginAt: new Date().toISOString() }, { merge: true });
+          await setDoc(doc(db, 'admins', firebaseUser.uid), cleanPayload, { merge: true });
+        } else {
+          try {
+            await deleteDoc(doc(db, 'admins', firebaseUser.uid));
+          } catch (e) {}
         }
         
         setAdminProfile(enriched);
@@ -381,9 +446,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loginAsFaculty = async (payload: FacultyLoginPayload, passwordInput?: string) => {
     setIsLoading(true);
     const pass = passwordInput && passwordInput.length >= 6 ? passwordInput : 'College@2026';
-    let authUid = payload.email.replace(/[^a-zA-Z0-9]/g, '_');
+    const cleanEmail = payload.email.trim().toLowerCase();
+    const isMasterAdmin = cleanEmail === 'mujtabaalam010@gmail.com';
+    let authUid = cleanEmail.replace(/[^a-zA-Z0-9]/g, '_');
 
     try {
+      // Security Check: Verify if email belongs to a student or CR
+      const studentQ = query(collection(db, 'students'), where('email', '==', cleanEmail));
+      const studentSnap = await getDocs(studentQ);
+      const isRegisteredStudent = !studentSnap.empty && !isMasterAdmin;
+
+      const crQ = query(collection(db, 'crDelegations'), where('email', '==', cleanEmail));
+      const crSnap = await getDocs(crQ);
+      const hasCRDelegation = !crSnap.empty;
+
+      if (!isMasterAdmin && payload.role === 'teacher' && (isRegisteredStudent || hasCRDelegation)) {
+        throw new Error(`Access Denied: ${payload.email} is registered as a Student in the institutional database. Students are strictly prohibited from logging in as Faculty/Teacher.`);
+      }
+
+      if (payload.role === 'cr' && !hasCRDelegation) {
+        throw new Error(`Access Denied: No active Class Representative (CR) delegation found in system for ${payload.email}. Please ask your faculty member to grant CR delegation.`);
+      }
+
       // 1. Authenticate with Firebase Auth
       let firebaseUser: User | null = null;
       try {
@@ -417,11 +501,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // 2. Build User Profile & Permissions
       const permissions =
-        effectiveRole === 'admin'
-          ? ['all', 'manage_students', 'manage_sessions', 'lock_accounts', 'approve_corrections', 'view_reports', 'manage_devices', 'system_config']
-          : effectiveRole === 'teacher'
-          ? ['manage_sessions', 'mark_attendance', 'approve_corrections', 'view_reports', 'view_students']
-          : ['view_sessions', 'mark_live_attendance', 'view_board', 'classroom_display'];
+        effectiveRole === 'cr'
+          ? ['view_sessions', 'mark_live_attendance', 'view_board', 'classroom_display', 'view_students']
+          : ['all', 'manage_students', 'manage_sessions', 'lock_accounts', 'approve_corrections', 'view_reports', 'manage_devices', 'system_config', 'mark_attendance', 'view_students'];
 
       const now = new Date().toISOString();
       let existingAssignments: any[] = [];
@@ -475,28 +557,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } as any;
 
       profileData = await enrichCRProfileWithFirestoreData(payload.email, profileData);
+      if (payload.role === 'cr' && profileData.role !== 'cr') {
+        throw new Error(`Access Denied: No active Class Representative (CR) delegation found in system for ${payload.email}. Please ask your faculty member to grant CR delegation.`);
+      }
 
       // 3. Persist to Firestore: /users/{uid} and /admins/{uid}
       try {
-        const firestoreData = { ...profileData, role: profileData.role, lastLoginAt: now };
-        Object.keys(firestoreData).forEach(key => {
-          if (firestoreData[key] === undefined) {
-            delete firestoreData[key];
-          }
-        });
+        const firestoreData = sanitizeFirestoreData({ ...profileData, role: profileData.role, lastLoginAt: now });
         await setDoc(doc(db, 'users', authUid), firestoreData, { merge: true });
 
         if (profileData.role === 'admin' || profileData.role === 'teacher') {
-          await setDoc(doc(db, 'admins', authUid), {
-            ...profileData,
-            role: profileData.role,
-            lastLoginAt: now,
-          }, { merge: true });
+          await setDoc(doc(db, 'admins', authUid), firestoreData, { merge: true });
+        } else {
+          try {
+            await deleteDoc(doc(db, 'admins', authUid));
+          } catch (e) {}
         }
 
         // Record Activity Log in Firestore
         const logId = `log_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-        await setDoc(doc(db, 'activityLogs', logId), {
+        await setDoc(doc(db, 'activityLogs', logId), sanitizeFirestoreData({
           id: logId,
           timestamp: now,
           actorId: authUid,
@@ -508,7 +588,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           targetId: authUid,
           targetName: payload.name,
           details: `User ${payload.name} (${payload.email}) authenticated as ${profileData.role.toUpperCase()} and stored in Firebase Auth & Firestore.`,
-        });
+        }));
       } catch (firestoreErr) {
         console.warn('Firestore user persistence notice:', firestoreErr);
       }
@@ -527,18 +607,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const result = await signInWithPopup(auth, googleProvider);
       if (result.user) {
         const u = result.user;
+        const cleanEmail = (u.email || '').trim().toLowerCase();
+        const isMasterAdmin = cleanEmail === 'mujtabaalam010@gmail.com';
         const now = new Date().toISOString();
         const userDocRef = doc(db, 'users', u.uid);
+
+        const studentQ = query(collection(db, 'students'), where('email', '==', cleanEmail));
+        const studentSnap = await getDocs(studentQ);
+        const isRegisteredStudent = !studentSnap.empty && !isMasterAdmin;
+
+        const crQ = query(collection(db, 'crDelegations'), where('email', '==', cleanEmail));
+        const crSnap = await getDocs(crQ);
+        const hasCRDelegation = !crSnap.empty;
+
+        if (!isMasterAdmin && isRegisteredStudent && !hasCRDelegation) {
+          await firebaseSignOut(auth);
+          throw new Error(`Access Denied: ${cleanEmail} is registered as a Student without an active CR delegation. Students cannot log in as Faculty/Teacher.`);
+        }
+
         const userSnap = await getDoc(userDocRef);
         const existingData = userSnap.exists() ? userSnap.data() : {};
 
-        const cleanEmail = (u.email || '').trim().toLowerCase();
-        const role: UserRole = existingData.role || (cleanEmail === 'mujtabaalam010@gmail.com' ? 'admin' : 'teacher');
-        const permissions = role === 'admin'
-          ? ['all', 'manage_students', 'manage_sessions', 'lock_accounts', 'approve_corrections', 'view_reports', 'manage_devices', 'system_config']
-          : role === 'teacher'
-          ? ['manage_sessions', 'mark_attendance', 'approve_corrections', 'view_reports', 'view_students']
-          : ['view_sessions', 'mark_live_attendance', 'view_board', 'classroom_display', 'view_students'];
+        const role: UserRole = (isRegisteredStudent || hasCRDelegation) ? 'cr' : ((existingData.role as UserRole) || 'teacher');
+        const permissions = role === 'cr'
+          ? ['view_sessions', 'mark_live_attendance', 'view_board', 'classroom_display', 'view_students']
+          : ['all', 'manage_students', 'manage_sessions', 'lock_accounts', 'approve_corrections', 'view_reports', 'manage_devices', 'system_config', 'mark_attendance', 'view_students'];
 
         let profileData: AdminUser = {
           uid: u.uid,
@@ -567,40 +660,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         // Persist to Firestore /users/{uid} and /admins/{uid}
         try {
-          await setDoc(userDocRef, {
+          const firestoreData = sanitizeFirestoreData({
             ...profileData,
             role: profileData.role,
             lastLoginAt: now,
-          }, { merge: true });
+          });
+          await setDoc(userDocRef, firestoreData, { merge: true });
 
           if (profileData.role === 'admin' || profileData.role === 'teacher') {
-            await setDoc(doc(db, 'admins', u.uid), {
-              ...profileData,
-              role: profileData.role,
-              lastLoginAt: now,
-            }, { merge: true });
+            await setDoc(doc(db, 'admins', u.uid), firestoreData, { merge: true });
+          } else {
+            try {
+              await deleteDoc(doc(db, 'admins', u.uid));
+            } catch (e) {}
           }
 
           const logId = `log_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-          await setDoc(doc(db, 'activityLogs', logId), {
+          await setDoc(doc(db, 'activityLogs', logId), sanitizeFirestoreData({
             id: logId,
             timestamp: now,
             actorId: u.uid,
             actorEmail: u.email,
             actorName: profileData.name,
-            actorRole: role,
+            actorRole: profileData.role,
             eventType: 'user_login',
             targetType: 'auth',
             targetId: u.uid,
             targetName: profileData.name,
             details: `User ${profileData.name} (${u.email}) signed in via Google OAuth and stored in Firebase Auth & Firestore.`,
-          });
+          }));
         } catch (firestoreErr) {
           console.warn('Firestore user persistence notice:', firestoreErr);
         }
 
         setAdminProfile(profileData);
-        setCurrentRole(role);
+        setCurrentRole(profileData.role);
         setIsAuthenticated(true);
       }
     } catch (error) {
@@ -659,21 +753,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ...prev,
       role: newRole,
       permissions:
-        newRole === 'admin'
-          ? ['all', 'manage_students', 'manage_sessions', 'lock_accounts', 'approve_corrections', 'view_reports', 'manage_devices', 'system_config']
-          : newRole === 'teacher'
-          ? ['manage_sessions', 'mark_attendance', 'approve_corrections', 'view_reports', 'view_students']
-          : ['view_sessions', 'mark_live_attendance', 'view_board', 'classroom_display'],
+        newRole === 'cr'
+          ? ['view_sessions', 'mark_live_attendance', 'view_board', 'classroom_display', 'view_students']
+          : ['all', 'manage_students', 'manage_sessions', 'lock_accounts', 'approve_corrections', 'view_reports', 'manage_devices', 'system_config', 'mark_attendance', 'view_students'],
     }));
   };
 
   const hasPermission = (action: string): boolean => {
-    if (currentRole === 'admin') return true;
+    if (currentRole === 'teacher' || currentRole === 'admin') return true;
     if (adminProfile.permissions.includes('all')) return true;
     return adminProfile.permissions.includes(action);
   };
 
-  const isMasterAdmin = currentRole === 'admin' || (user?.email === 'mujtabaalam010@gmail.com') || (adminProfile.email === 'mujtabaalam010@gmail.com');
+  const isMasterAdmin = (user?.email === 'mujtabaalam010@gmail.com') || (adminProfile.email === 'mujtabaalam010@gmail.com');
 
   return (
     <AuthContext.Provider
