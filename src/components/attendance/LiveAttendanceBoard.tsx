@@ -81,8 +81,11 @@ export const LiveAttendanceBoard: React.FC = () => {
       }
 
       // Section match
-      if (sectionFilter !== 'all' && student.section !== sectionFilter) {
-        return false;
+      if (sectionFilter !== 'all') {
+        const normalizeSec = (s?: string) => (s || '').toUpperCase().replace(/^SECTION\s*/i, '').trim();
+        if (normalizeSec(student.section) !== normalizeSec(sectionFilter)) {
+          return false;
+        }
       }
 
       return true;
@@ -241,9 +244,10 @@ export const LiveAttendanceBoard: React.FC = () => {
             onChange={e => setSectionFilter(e.target.value)}
             className="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-300 focus:outline-none focus:border-emerald-500"
           >
-            <option value="all">All Sections</option>
-            <option value="A">Section A</option>
-            <option value="B">Section B</option>
+            <option value="all">All Sections (A–M)</option>
+            {['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M'].map(sec => (
+              <option key={sec} value={sec}>Section {sec}</option>
+            ))}
           </select>
 
           <div className="relative flex-1 sm:w-60">

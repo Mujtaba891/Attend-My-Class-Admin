@@ -52,7 +52,9 @@ export const ImportStudentsModal: React.FC<ImportStudentsModalProps> = ({ isOpen
         const roll = cols[1] || `2024-ROLL-${String(i).padStart(3, '0')}`;
         const email = cols[2] || `student${i}@college.edu`;
         const phone = cols[3] || '+91 98000 00000';
-        const section = (cols[4]?.toUpperCase() === 'B' ? 'B' : 'A') as 'A' | 'B';
+        const rawSec = (cols[4] || 'A').toUpperCase().replace(/^SECTION\s*|^SEC\s*/i, '').trim();
+        const validSections = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M'];
+        const section = validSections.includes(rawSec) ? rawSec : 'A';
 
         students.push({
           studentId: `STU-${Date.now().toString().slice(-4)}-${i}`,

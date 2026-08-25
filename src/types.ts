@@ -47,6 +47,9 @@ export type AttendanceMethod = 'qr_scan' | 'manual_admin' | 'auto_close' | 'corr
 export type SessionStatus = 'scheduled' | 'active' | 'closed';
 export type CorrectionStatus = 'pending' | 'approved' | 'rejected';
 
+export const VALID_SECTIONS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M'] as const;
+export type SectionType = typeof VALID_SECTIONS[number];
+
 export interface Student {
   id: string; // Document ID / studentId (e.g., "STU-2024-001")
   studentId: string;
@@ -65,7 +68,7 @@ export interface Student {
   skills?: string;
   aec?: string;
   semester?: string; // "Semester IV"
-  section: string; // "A" or "B"
+  section: string; // "A" through "M" (or Section A, etc.)
   enrollmentDate?: string;
   avatarUrl?: string;
   accountStatus: AccountStatus;

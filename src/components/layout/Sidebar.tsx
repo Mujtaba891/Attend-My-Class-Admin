@@ -4,6 +4,7 @@ import {
   Radio,
   QrCode,
   Users,
+  CalendarDays,
   CalendarCheck2,
   Smartphone,
   CheckSquare,
@@ -59,6 +60,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
       icon: Users,
       roles: ['admin', 'teacher', 'cr'],
       count: students.length,
+    },
+    {
+      id: 'calendar',
+      label: 'Student Calendar',
+      icon: CalendarDays,
+      roles: ['admin', 'teacher', 'cr'],
     },
     {
       id: 'attendance',

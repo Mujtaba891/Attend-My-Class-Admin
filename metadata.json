@@ -1,6 +1,6 @@
 {
   "name": "Attend My Class",
-  "description": "College Attendance Management Portal with live QR sessions, real-time board, student & device security, reports, and correction approvals.",
+  "description": "Institutional College Attendance Portal with student attendance calendar, academic timetable integration (MDC, Skill, Minor, Major, Practicals, VAC, AEC), live QR sessions, real-time board, student & device security, and reports.",
   "requestFramePermissions": ["notifications"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

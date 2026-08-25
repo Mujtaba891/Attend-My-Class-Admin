@@ -13,11 +13,9 @@ import {
   Radio,
   CheckCircle2,
   Menu,
-  Download,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useAttendance } from '../../context/AttendanceContext';
-import { usePWA } from '../../context/PWAContext';
 
 interface NavbarProps {
   onOpenClassroomDisplay: () => void;
@@ -31,7 +29,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   onToggleMobileMenu,
 }) => {
   const { adminProfile, currentRole, logout, updateProfile } = useAuth();
-  const { isInstallable, isStandalone, isIOS, promptInstall, setShowIOSGuide } = usePWA();
   const {
     activeSession,
     currentClass,
@@ -141,24 +138,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             <Sparkles className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Simulate Scan</span>
-          </button>
-        )}
-
-        {/* PWA Install Button (if not already running in standalone) */}
-        {!isStandalone && (isInstallable || isIOS) && (
-          <button
-            onClick={() => {
-              if (isIOS) {
-                setShowIOSGuide(true);
-              } else {
-                promptInstall();
-              }
-            }}
-            title="Install Attend My Class as Desktop / Mobile App"
-            className="flex items-center gap-1.5 p-1.5 sm:px-3 sm:py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-semibold shadow-sm transition-all active:scale-95 cursor-pointer animate-pulse"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Install App</span>
           </button>
         )}
 

@@ -6,6 +6,7 @@ import {
   ShieldCheck,
   ShieldAlert,
   CalendarCheck2,
+  CalendarDays,
   Mail,
   Phone,
   BookOpen,
@@ -24,6 +25,7 @@ import { useAuth } from '../../context/AuthContext';
 import { StatusBadge } from '../common/Badge';
 import { DeleteStudentConfirmModal } from './DeleteStudentConfirmModal';
 import { EditStudentModal } from './EditStudentModal';
+import { StudentCalendarModal } from '../calendar/StudentCalendarModal';
 
 interface StudentProfileModalProps {
   isOpen: boolean;
@@ -50,6 +52,7 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
   const { currentRole } = useAuth();
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [deviceResetDone, setDeviceResetDone] = useState(false);
 
   if (!isOpen || !student) return null;
@@ -186,6 +189,17 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                 {stats.absent}
               </div>
             </div>
+          </div>
+
+          {/* Quick Action: Open Full Attendance Calendar */}
+          <div className="my-4">
+            <button
+              onClick={() => setIsCalendarOpen(true)}
+              className="w-full py-2.5 px-4 rounded-xl bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-300 border border-emerald-500/30 font-semibold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm"
+            >
+              <CalendarDays className="w-4 h-4 text-emerald-400" />
+              <span>Open Student Attendance Calendar & Timetable</span>
+            </button>
           </div>
 
           {/* Personal & Academic Details */}
@@ -377,6 +391,15 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
             setIsDeleteModalOpen(false);
             onClose();
           }}
+        />
+      )}
+
+      {/* Student Attendance Calendar Modal */}
+      {isCalendarOpen && (
+        <StudentCalendarModal
+          isOpen={isCalendarOpen}
+          onClose={() => setIsCalendarOpen(false)}
+          studentId={student.id}
         />
       )}
     </>

@@ -15,7 +15,7 @@ export const AddStudentModal: React.FC<AddStudentModalProps> = ({ isOpen, onClos
   const [rollNumber, setRollNumber] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
-  const [section, setSection] = useState<'A' | 'B'>('A');
+  const [section, setSection] = useState<string>('A');
   const [course, setCourse] = useState('B.Sc. (Hons) Degree Course');
   const [batch, setBatch] = useState('2024-2027');
   const [deviceModel, setDeviceModel] = useState('Google Pixel 8a (Auto-Bind)');
@@ -137,11 +137,12 @@ export const AddStudentModal: React.FC<AddStudentModalProps> = ({ isOpen, onClos
               </label>
               <select
                 value={section}
-                onChange={e => setSection(e.target.value as 'A' | 'B')}
+                onChange={e => setSection(e.target.value)}
                 className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
               >
-                <option value="A">Section A</option>
-                <option value="B">Section B</option>
+                {['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M'].map(sec => (
+                  <option key={sec} value={sec}>Section {sec}</option>
+                ))}
               </select>
             </div>
 

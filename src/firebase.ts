@@ -14,11 +14,8 @@ import firebaseConfig from '../firebase-applet-config.json';
 // Initialize Firebase App instance singleton
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
-// Initialize Firestore with configured database ID
-export const db: Firestore = 
-  firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
-    ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
-    : getFirestore(app);
+// Initialize Firestore with configured database ID as mandated by skill
+export const db: Firestore = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
 // Initialize Auth
 export const auth = getAuth(app);

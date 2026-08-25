@@ -20,14 +20,12 @@ import { MonthlyReportsView } from './components/reports/MonthlyReportsView';
 import { ActivityLogsView } from './components/logs/ActivityLogsView';
 import { NotificationsView } from './components/notifications/NotificationsView';
 import { SettingsView } from './components/settings/SettingsView';
-import { PwaInstallBanner } from './components/pwa/PwaInstallBanner';
+import { StudentCalendarView } from './components/calendar/StudentCalendarView';
 import { PwaUpdateToast } from './components/pwa/PwaUpdateToast';
 import { OfflineIndicator } from './components/pwa/OfflineIndicator';
-import { IOSInstallModal } from './components/pwa/IOSInstallModal';
 
 const AppContent: React.FC = () => {
   const { isAuthenticated } = useAuth();
-  const { showIOSGuide, setShowIOSGuide } = usePWA();
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [isClassroomDisplayOpen, setIsClassroomDisplayOpen] = useState<boolean>(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
@@ -38,9 +36,7 @@ const AppContent: React.FC = () => {
       <>
         <OfflineIndicator />
         <LoginPage />
-        <PwaInstallBanner />
         <PwaUpdateToast />
-        <IOSInstallModal isOpen={showIOSGuide} onClose={() => setShowIOSGuide(false)} />
       </>
     );
   }
@@ -64,6 +60,9 @@ const AppContent: React.FC = () => {
         );
       case 'students':
         return <StudentManagementView />;
+      case 'calendar':
+      case 'student_calendar':
+        return <StudentCalendarView />;
       case 'attendance':
         return <AttendanceHistoryView />;
       case 'devices':
@@ -134,10 +133,8 @@ const AppContent: React.FC = () => {
         <ClassroomDisplayMode onClose={() => setIsClassroomDisplayOpen(false)} />
       )}
 
-      {/* PWA Floating Components */}
-      <PwaInstallBanner />
+      {/* PWA Update Toast */}
       <PwaUpdateToast />
-      <IOSInstallModal isOpen={showIOSGuide} onClose={() => setShowIOSGuide(false)} />
     </div>
   );
 };

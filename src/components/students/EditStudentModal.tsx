@@ -37,7 +37,7 @@ export const EditStudentModal: React.FC<EditStudentModalProps> = ({
   const [registrationNumber, setRegistrationNumber] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
-  const [section, setSection] = useState<'A' | 'B'>('A');
+  const [section, setSection] = useState<string>('A');
   const [batch, setBatch] = useState('');
   const [course, setCourse] = useState('');
   const [accountStatus, setAccountStatus] = useState<AccountStatus>('active');
@@ -54,7 +54,8 @@ export const EditStudentModal: React.FC<EditStudentModalProps> = ({
       setRegistrationNumber(student.registrationNumber || '');
       setEmail(student.email || '');
       setPhone(student.phone || '');
-      setSection((student.section as 'A' | 'B') || 'A');
+      const rawSec = (student.section || 'A').toUpperCase().replace(/^SECTION\s*/i, '').trim();
+      setSection(rawSec || 'A');
       setBatch(student.batch || '2024-2027');
       setCourse(student.course || 'B.Sc. Geology');
       setAccountStatus(student.accountStatus || 'active');
@@ -209,11 +210,12 @@ export const EditStudentModal: React.FC<EditStudentModalProps> = ({
                   </label>
                   <select
                     value={section}
-                    onChange={e => setSection(e.target.value as 'A' | 'B')}
+                    onChange={e => setSection(e.target.value)}
                     className="w-full px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
                   >
-                    <option value="A">Section A</option>
-                    <option value="B">Section B</option>
+                    {['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M'].map(sec => (
+                      <option key={sec} value={sec}>Section {sec}</option>
+                    ))}
                   </select>
                 </div>
 

@@ -7,7 +7,6 @@ import { useAttendance } from '../../context/AttendanceContext';
 import { TeacherProfileCard } from './TeacherProfileCard';
 import { CRDelegationCard } from './CRDelegationCard';
 import { TimePickerModal } from '../common/TimePickerModal';
-import { PwaSettingsCard } from '../pwa/PwaSettingsCard';
 import { calculateDurationMinutes } from '../../utils/timeUtils';
 
 
@@ -136,8 +135,16 @@ const EditProfileModal = ({ isOpen, onClose, adminProfile, updateProfile }: any)
                   <input type="text" value={semester} onChange={e => setSemester(e.target.value)} placeholder="Semester IV" className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" />
                 </div>
                 <div>
-                  <label className="block text-[11px] uppercase font-bold text-slate-500 mb-1.5">Section</label>
-                  <input type="text" value={section} onChange={e => setSection(e.target.value)} placeholder="A" className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" />
+                  <label className="block text-[11px] uppercase font-bold text-slate-500 mb-1.5">Class Section</label>
+                  <select
+                    value={section.toUpperCase().replace(/^SECTION\s*/i, '').trim() || 'A'}
+                    onChange={e => setSection(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
+                  >
+                    {['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M'].map(sec => (
+                      <option key={sec} value={sec}>Section {sec}</option>
+                    ))}
+                  </select>
                 </div>
               </>
             ) : (
@@ -597,9 +604,6 @@ export const SettingsView: React.FC = () => {
           <CRDelegationCard />
         </div>
       </div>
-
-      {/* PWA & Installation Settings Card */}
-      <PwaSettingsCard />
 
       <EditProfileModal isOpen={isEditProfileOpen} onClose={() => setIsEditProfileOpen(false)} adminProfile={adminProfile} updateProfile={updateProfile} />
       

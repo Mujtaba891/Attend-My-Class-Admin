@@ -10,6 +10,7 @@ import {
   Lock,
   Unlock,
   Eye,
+  CalendarDays,
   CheckCircle2,
   Trash2,
   Edit2,
@@ -31,6 +32,7 @@ import { AddStudentModal } from './AddStudentModal';
 import { EditStudentModal } from './EditStudentModal';
 import { DeleteStudentConfirmModal } from './DeleteStudentConfirmModal';
 import { ImportStudentsModal } from './ImportStudentsModal';
+import { StudentCalendarModal } from '../calendar/StudentCalendarModal';
 
 export const StudentManagementView: React.FC = () => {
   const {
@@ -68,6 +70,7 @@ export const StudentManagementView: React.FC = () => {
 
   // Modals state
   const [selectedStudentForProfile, setSelectedStudentForProfile] = useState<Student | null>(null);
+  const [selectedStudentForCalendar, setSelectedStudentForCalendar] = useState<Student | null>(null);
   const [selectedStudentForEdit, setSelectedStudentForEdit] = useState<Student | null>(null);
   const [selectedStudentForDelete, setSelectedStudentForDelete] = useState<Student | null>(null);
   const [isBatchDeleteModalOpen, setIsBatchDeleteModalOpen] = useState(false);
@@ -84,6 +87,8 @@ export const StudentManagementView: React.FC = () => {
 
   // Filtered list
   const filteredStudents = useMemo(() => {
+    const normalizeSec = (s?: string) => (s || '').toUpperCase().replace(/^SECTION\s*/i, '').trim();
+
     return enrichedStudents.filter(({ student, stats }) => {
       const q = searchQuery.toLowerCase();
       const matchesSearch =
@@ -94,7 +99,7 @@ export const StudentManagementView: React.FC = () => {
 
       if (!matchesSearch) return false;
 
-      if (sectionFilter !== 'all' && student.section !== sectionFilter) {
+      if (sectionFilter !== 'all' && normalizeSec(student.section) !== normalizeSec(sectionFilter)) {
         return false;
       }
 
@@ -340,9 +345,10 @@ export const StudentManagementView: React.FC = () => {
             onChange={e => setSectionFilter(e.target.value)}
             className="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-300 focus:outline-none focus:border-emerald-500"
           >
-            <option value="all">All Sections</option>
-            <option value="A">Section A</option>
-            <option value="B">Section B</option>
+            <option value="all">All Sections (A–M)</option>
+            {['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M'].map(sec => (
+              <option key={sec} value={sec}>Section {sec}</option>
+            ))}
           </select>
 
           {/* Search Box */}
@@ -546,13 +552,24 @@ export const StudentManagementView: React.FC = () => {
 
                 {/* Card Action Buttons */}
                 <div className="pt-4 mt-4 border-t border-slate-800 flex items-center justify-between gap-2">
-                  <button
-                    onClick={() => setSelectedStudentForProfile(student)}
-                    className="flex items-center gap-1 text-xs font-semibold text-emerald-400 hover:text-emerald-300 cursor-pointer"
-                  >
-                    <Eye className="w-3.5 h-3.5" />
-                    <span>View Profile</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setSelectedStudentForProfile(student)}
+                      className="flex items-center gap-1 text-xs font-semibold text-emerald-400 hover:text-emerald-300 cursor-pointer"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>View Profile</span>
+                    </button>
+
+                    <button
+                      onClick={() => setSelectedStudentForCalendar(student)}
+                      className="flex items-center gap-1 text-xs font-semibold text-cyan-400 hover:text-cyan-300 cursor-pointer"
+                      title="Open Student Attendance Calendar"
+                    >
+                      <CalendarDays className="w-3.5 h-3.5" />
+                      <span>Calendar</span>
+                    </button>
+                  </div>
 
                   {currentRole === 'admin' && (
                     <div className="flex items-center gap-1.5">
@@ -700,6 +717,14 @@ export const StudentManagementView: React.FC = () => {
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
                         <button
+                          onClick={() => setSelectedStudentForCalendar(student)}
+                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-400 hover:text-cyan-300 transition-colors cursor-pointer"
+                          title="Open Attendance Calendar"
+                        >
+                          <CalendarDays className="w-3.5 h-3.5" />
+                        </button>
+
+                        <button
                           onClick={() => setSelectedStudentForProfile(student)}
                           className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-400 transition-colors cursor-pointer"
                           title="View Profile"
@@ -832,6 +857,15 @@ export const StudentManagementView: React.FC = () => {
         <ImportStudentsModal
           isOpen={isImportModalOpen}
           onClose={() => setIsImportModalOpen(false)}
+        />
+      )}
+
+      {/* Student Attendance Calendar Modal */}
+      {selectedStudentForCalendar && (
+        <StudentCalendarModal
+          isOpen={!!selectedStudentForCalendar}
+          onClose={() => setSelectedStudentForCalendar(null)}
+          studentId={selectedStudentForCalendar.id}
         />
       )}
     </div>
