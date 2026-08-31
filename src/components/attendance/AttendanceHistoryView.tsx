@@ -22,21 +22,28 @@ export const AttendanceHistoryView: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
 
+  const enrolledStudentIds = useMemo(() => new Set(students.map(s => s.id)), [students]);
+
+  // Subject-scoped attendance records
+  const subjectAttendance = useMemo(() => {
+    return allAttendance.filter(a => enrolledStudentIds.size === 0 || enrolledStudentIds.has(a.studentId));
+  }, [allAttendance, enrolledStudentIds]);
+
   // Unique session dates
   const availableDates = useMemo(() => {
-    const dates = Array.from(new Set(allAttendance.map(a => a.date)));
-    return dates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
-  }, [allAttendance]);
+    const dates: string[] = Array.from(new Set(subjectAttendance.map(a => a.date)));
+    return dates.sort((a: string, b: string) => new Date(b).getTime() - new Date(a).getTime());
+  }, [subjectAttendance]);
 
   // Session for selected date
   const sessionForDate = useMemo(() => {
-    return sessions.find(s => s.date === selectedDate);
-  }, [sessions, selectedDate]);
+    return sessions.find(s => s.date === selectedDate && (s.classId === currentClass.id || s.subject === currentClass.paperName));
+  }, [sessions, selectedDate, currentClass]);
 
   // Records for selected date
   const recordsForDate = useMemo(() => {
-    return allAttendance.filter(a => a.date === selectedDate);
-  }, [allAttendance, selectedDate]);
+    return subjectAttendance.filter(a => a.date === selectedDate);
+  }, [subjectAttendance, selectedDate]);
 
   const filteredRecords = useMemo(() => {
     return recordsForDate.filter(r => {

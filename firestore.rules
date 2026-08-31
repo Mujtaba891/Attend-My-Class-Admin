@@ -2,108 +2,173 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper functions
+    // ----------------------------------------------------
+    // GLOBAL REUSABLE ACCESS HELPERS
+    // ----------------------------------------------------
     function isSignedIn() {
       return request.auth != null;
     }
 
-    function isBootstrappedAdmin() {
+    function isMasterAdmin() {
       return isSignedIn() && (
-        request.auth.token.email == "mujtabaalam010@gmail.com"
-      );
-    }
-
-    function isAdmin() {
-      return isSignedIn() && (
-        isBootstrappedAdmin() ||
+        request.auth.token.email == 'mujtabaalam010@gmail.com' ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
 
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
     function isValidId(id) {
-      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    // ----------------------------------------------------
+    // ENTITY VALIDATION HELPERS (Schema-Aligned)
+    // ----------------------------------------------------
+    function isValidHoliday(data) {
+      return data.date is string && data.date.size() >= 8 && data.date.size() <= 30 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 150;
+    }
+
+    function isValidTimetableSchedule(data) {
+      return data.scheduleVersion is string && data.scheduleVersion.size() <= 50;
+    }
+
+    function isValidStudent(data) {
+      return (data.fullName is string || data.name is string || data.studentId is string) &&
+             data.section is string;
+    }
+
+    function isValidAttendanceSession(data) {
+      return (data.className is string || data.subject is string || data.classId is string) &&
+             data.date is string && data.date.size() <= 30;
+    }
+
+    function isValidAttendanceRecord(data) {
+      return data.sessionId is string && data.sessionId.size() <= 128 &&
+             data.studentId is string && data.studentId.size() <= 128 &&
+             data.status is string;
+    }
+
+    function isValidCorrectionRequest(data) {
+      return data.studentId is string && data.studentId.size() <= 128 &&
+             data.status is string;
+    }
+
+    function isValidCRDelegation(data) {
+      return data.email is string && data.email.size() <= 150;
+    }
+
+    function isValidActivityLog(data) {
+      return data.timestamp is string && data.timestamp.size() <= 50;
+    }
+
+    // ----------------------------------------------------
+    // COLLECTION RULES
+    // ----------------------------------------------------
+
+    // 1. Academic Holidays
+    match /holidays/{holidayId} {
+      allow read: if true;
+      allow create, update: if (isMasterAdmin() || isSignedIn()) && isValidHoliday(request.resource.data);
+      allow delete: if isMasterAdmin() || isSignedIn();
+    }
+
+    // 2. Timetable Schedule
+    match /timetableSchedule/{scheduleId} {
+      allow read: if true;
+      allow create, update: if (isMasterAdmin() || isSignedIn()) && isValidTimetableSchedule(request.resource.data);
+      allow delete: if isMasterAdmin() || isSignedIn();
+    }
+
+    // 3. Students Roster & Device Info
+    match /students/{studentId} {
+      allow read: if true;
+      allow create, update: if (isMasterAdmin() || isSignedIn() || isOwner(studentId) || isValidId(studentId)) && isValidStudent(request.resource.data);
+      allow delete: if isMasterAdmin() || isSignedIn();
+    }
+
+    // 4. Attendance Sessions (Main + Legacy path for scanner compatibility)
+    match /attendanceSessions/{sessionId} {
+      allow read: if true;
+      allow create, update: if (isMasterAdmin() || isSignedIn() || isValidId(sessionId)) && isValidAttendanceSession(request.resource.data);
+      allow delete: if isMasterAdmin() || isSignedIn();
+    }
+
+    match /sessions/{sessionId} {
+      allow read: if true;
+      allow create, update: if (isMasterAdmin() || isSignedIn() || isValidId(sessionId)) && isValidAttendanceSession(request.resource.data);
+      allow delete: if isMasterAdmin() || isSignedIn();
+    }
+
+    // 5. Individual Attendance Records
+    match /attendance/{attendanceId} {
+      allow read: if true;
+      allow create, update: if (isMasterAdmin() || isSignedIn() || isValidId(attendanceId)) && isValidAttendanceRecord(request.resource.data);
+      allow delete: if isMasterAdmin() || isSignedIn();
+    }
+
+    // 6. Correction Appeals Queue
+    match /correctionRequests/{requestId} {
+      allow read: if true;
+      allow create, update: if (isMasterAdmin() || isSignedIn() || isValidId(requestId)) && isValidCorrectionRequest(request.resource.data);
+      allow delete: if isMasterAdmin() || isSignedIn();
+    }
+
+    // 7. CR Delegations
+    match /crDelegations/{delegationId} {
+      allow read: if true;
+      allow create, update: if (isMasterAdmin() || isSignedIn()) && isValidCRDelegation(request.resource.data);
+      allow delete: if isMasterAdmin() || isSignedIn();
+    }
+
+    // 8. Activity Logs
+    match /activityLogs/{logId} {
+      allow read: if true;
+      allow create: if (isMasterAdmin() || isSignedIn() || isValidId(logId)) && isValidActivityLog(request.resource.data);
+      allow update, delete: if false; // Immutable audit trail
+    }
+
+    // 9. Admin & Faculty Directory
+    match /admins/{adminId} {
+      allow read: if true;
+      allow create, update: if isMasterAdmin() || isSignedIn() || isOwner(adminId) || isValidId(adminId);
+      allow delete: if isMasterAdmin() || isSignedIn();
+    }
+
+    // 10. User Profiles
+    match /users/{userId} {
+      allow read: if true;
+      allow create, update: if isMasterAdmin() || isSignedIn() || isOwner(userId) || isValidId(userId);
+      allow delete: if isMasterAdmin() || isSignedIn();
+    }
+
+    // 11. Username claims
+    match /usernames/{username} {
+      allow read: if true;
+      allow create, update: if true;
+      allow delete: if isMasterAdmin() || isSignedIn();
+    }
+
+    // 12. Classroom Configs
+    match /classes/{classId} {
+      allow read: if true;
+      allow write: if isSignedIn() || isMasterAdmin();
+    }
+
+    // 13. System Notifications
+    match /notifications/{notificationId} {
+      allow read: if true;
+      allow create, update: if (isMasterAdmin() || isSignedIn() || isValidId(notificationId));
+      allow delete: if isMasterAdmin() || isSignedIn();
     }
 
     // Default deny catch-all
     match /{document=**} {
       allow read, write: if false;
     }
-
-    // Admin collection
-    match /admins/{adminId} {
-      allow read: if true;
-      allow write: if isSignedIn() || isAdmin();
-    }
-
-    // Students collection
-    match /students/{studentId} {
-      allow read: if true;
-      allow create, update: if isSignedIn() || isAdmin() || isValidId(studentId);
-      allow delete: if isAdmin() || isSignedIn();
-    }
-
-    // Users collection (fallback / mirror for auth profiles)
-    match /users/{userId} {
-      allow read: if true;
-      allow write: if isSignedIn() || isAdmin();
-    }
-
-    // Usernames collection
-    match /usernames/{username} {
-      allow read: if true;
-      allow create, update: if true;
-    }
-
-    // Classes collection
-    match /classes/{classId} {
-      allow read: if true;
-      allow write: if isSignedIn() || isAdmin();
-    }
-
-    // Attendance sessions
-    match /attendanceSessions/{sessionId} {
-      allow read: if true;
-      allow write: if isSignedIn() || isAdmin() || isValidId(sessionId);
-    }
-
-    match /sessions/{sessionId} {
-      allow read: if true;
-      allow write: if isSignedIn() || isAdmin() || isValidId(sessionId);
-    }
-
-    // Attendance records
-    match /attendance/{recordId} {
-      allow read: if true;
-      allow create, update: if isSignedIn() || isAdmin() || isValidId(recordId);
-      allow delete: if isAdmin() || isSignedIn();
-    }
-
-    // Correction requests
-    match /correctionRequests/{requestId} {
-      allow read: if true;
-      allow create, update: if isSignedIn() || isAdmin() || isValidId(requestId);
-      allow delete: if isAdmin() || isSignedIn();
-    }
-
-    // Activity logs
-    match /activityLogs/{logId} {
-      allow read: if true;
-      allow create: if isSignedIn() || isAdmin() || isValidId(logId);
-      allow update, delete: if false; // Immutable audit trail
-    }
-
-    // Notifications
-    match /notifications/{notificationId} {
-      allow read: if true;
-      allow create, update: if isSignedIn() || isAdmin() || isValidId(notificationId);
-      allow delete: if isAdmin() || isSignedIn();
-    }
-
-    // CR Delegations
-    match /crDelegations/{delegationId} {
-      allow read: if true;
-      allow create, update: if isSignedIn() || isAdmin() || isValidId(delegationId);
-      allow delete: if isAdmin() || isSignedIn();
-    }
   }
 }
+

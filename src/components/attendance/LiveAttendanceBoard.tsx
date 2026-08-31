@@ -32,7 +32,7 @@ export const LiveAttendanceBoard: React.FC = () => {
     markAttendance,
   } = useAttendance();
 
-  const { currentRole } = useAuth();
+  const { currentRole, adminProfile } = useAuth();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -42,26 +42,28 @@ export const LiveAttendanceBoard: React.FC = () => {
     record?: AttendanceRecord;
   } | null>(null);
 
-  // Map students with their today's attendance record
+  // Map students with their today's attendance record strictly scoped to current active session
   const studentRoster = useMemo(() => {
     return students.map(student => {
-      const record = todayAttendance.find(a => a.studentId === student.id);
+      const record = activeSession ? todayAttendance.find(a => a.studentId === student.id && a.sessionId === activeSession.id) : undefined;
       return {
         student,
         record: record || {
-          id: `${activeSession?.id || 'geo_today'}_${student.id}`,
-          sessionId: activeSession?.id || 'geo_today',
-          classId: 'geology',
+          id: `${activeSession?.id || `session_${currentClass.id}`}_${student.id}`,
+          sessionId: activeSession?.id || `session_${currentClass.id}`,
+          classId: currentClass.id,
+          subject: activeSession?.subject || adminProfile.assignedSubject || 'Geology',
+          subjectType: activeSession?.subjectType || adminProfile.assignedSubjectType || 'MDC',
           studentId: student.id,
           studentName: student.fullName,
           rollNumber: student.rollNumber,
-          date: activeSession?.date || '2026-08-19',
+          date: activeSession?.date || new Date().toISOString().split('T')[0],
           status: 'not_marked' as AttendanceStatus,
           method: 'auto_close' as const,
         },
       };
     });
-  }, [students, todayAttendance, activeSession]);
+  }, [students, todayAttendance, activeSession, currentClass.id, adminProfile]);
 
   // Filtered roster
   const filteredRoster = useMemo(() => {
@@ -116,7 +118,8 @@ export const LiveAttendanceBoard: React.FC = () => {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Geology_Attendance_${activeSession?.date || 'Today'}.csv`);
+    const subjectName = (adminProfile?.assignedSubject || 'Attendance').replace(/[^a-zA-Z0-9]/g, '_');
+    link.setAttribute('download', `${subjectName}_Attendance_${activeSession?.date || 'Today'}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

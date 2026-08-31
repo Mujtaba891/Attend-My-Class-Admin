@@ -19,8 +19,11 @@ export const WeeklyReportsView: React.FC = () => {
 
   // Calculate real week data
   const getRealWeekData = () => {
-    // Group allAttendance by date
-    const attendanceByDate = allAttendance.reduce((acc: any, record: any) => {
+    const enrolledStudentIds = new Set(students.map(s => s.id));
+    const subjectRecords = allAttendance.filter(a => enrolledStudentIds.size === 0 || enrolledStudentIds.has(a.studentId));
+
+    // Group subject attendance by date
+    const attendanceByDate = subjectRecords.reduce((acc: any, record: any) => {
       if (!acc[record.date]) {
         acc[record.date] = { present: 0, absent: 0 };
       }
@@ -171,8 +174,8 @@ export const WeeklyReportsView: React.FC = () => {
         </h3>
 
         <div className="space-y-4">
-          {weekDays.map(item => (
-            <div key={item.day} className="space-y-1.5">
+          {weekDays.map((item, idx) => (
+            <div key={item.date ? `${item.day}-${item.date}` : `${item.day}-${idx}`} className="space-y-1.5">
               <div className="flex items-center justify-between text-xs">
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-slate-200">{item.day}</span>

@@ -44,8 +44,8 @@ interface StudentCalendarViewProps {
 export const StudentCalendarView: React.FC<StudentCalendarViewProps> = ({
   initialStudentId,
 }) => {
-  const { students, allAttendance, sessions, markAttendance } = useAttendance();
-  const { currentRole } = useAuth();
+  const { students, allAttendance, sessions, markAttendance, markStudentDateAttendance } = useAttendance();
+  const { currentRole, adminProfile } = useAuth();
 
   // Selected Student
   const [selectedStudentId, setSelectedStudentId] = useState<string>(
@@ -53,12 +53,24 @@ export const StudentCalendarView: React.FC<StudentCalendarViewProps> = ({
   );
   const [studentSearchQuery, setStudentSearchQuery] = useState('');
   const [isStudentDropdownOpen, setIsStudentDropdownOpen] = useState(false);
+  const [actionFeedback, setActionFeedback] = useState<string | null>(null);
 
-  // Active Calendar Date (Month/Year)
-  const [viewDate, setViewDate] = useState<Date>(new Date(2026, 7, 1)); // Default to August 2026
-  const [selectedDayDate, setSelectedDayDate] = useState<string>(
-    new Date().toISOString().split('T')[0]
-  );
+  // Timezone-safe local date formatting helper (YYYY-MM-DD)
+  const formatDateToLocalISO = (d: Date): string => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  const todayStr = useMemo(() => formatDateToLocalISO(new Date()), []);
+
+  // Active Calendar Date (Month/Year) - default to current month
+  const [viewDate, setViewDate] = useState<Date>(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+  });
+  const [selectedDayDate, setSelectedDayDate] = useState<string>(() => formatDateToLocalISO(new Date()));
   const [subjectFilter, setSubjectFilter] = useState<string>('all');
   const [isTimetableModalOpen, setIsTimetableModalOpen] = useState(false);
   const [activeModalTab, setActiveModalTab] = useState<'timetable' | 'vac_aec' | 'holidays'>('timetable');
@@ -115,7 +127,7 @@ export const StudentCalendarView: React.FC<StudentCalendarViewProps> = ({
     return map;
   }, [studentAttendanceRecords]);
 
-  // Calendar days generation
+  // Calendar days generation with timezone-safe local date formatting
   const calendarGridDays = useMemo(() => {
     const firstDayIndex = new Date(year, month, 1).getDay(); // 0 is Sunday
     // Convert so Monday is 0, Sunday is 6
@@ -128,7 +140,7 @@ export const StudentCalendarView: React.FC<StudentCalendarViewProps> = ({
     // Previous month filler days
     for (let i = startingOffset - 1; i >= 0; i--) {
       const prevDate = new Date(year, month - 1, daysInPrevMonth - i);
-      const dateStr = prevDate.toISOString().split('T')[0];
+      const dateStr = formatDateToLocalISO(prevDate);
       const holiday = getHolidayForDate(dateStr);
       days.push({
         date: prevDate,
@@ -143,7 +155,7 @@ export const StudentCalendarView: React.FC<StudentCalendarViewProps> = ({
     // Current month days
     for (let i = 1; i <= daysInMonth; i++) {
       const dateObj = new Date(year, month, i);
-      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+      const dateStr = formatDateToLocalISO(dateObj);
       const holiday = getHolidayForDate(dateStr);
       days.push({
         date: dateObj,
@@ -160,7 +172,7 @@ export const StudentCalendarView: React.FC<StudentCalendarViewProps> = ({
     const remaining = totalCells - days.length;
     for (let i = 1; i <= remaining; i++) {
       const nextDate = new Date(year, month + 1, i);
-      const dateStr = nextDate.toISOString().split('T')[0];
+      const dateStr = formatDateToLocalISO(nextDate);
       const holiday = getHolidayForDate(dateStr);
       days.push({
         date: nextDate,
@@ -187,7 +199,25 @@ export const StudentCalendarView: React.FC<StudentCalendarViewProps> = ({
   const handleTodayJump = () => {
     const today = new Date();
     setViewDate(new Date(today.getFullYear(), today.getMonth(), 1));
-    setSelectedDayDate(today.toISOString().split('T')[0]);
+    setSelectedDayDate(formatDateToLocalISO(today));
+  };
+
+  // Handler for manual single-click date attendance marking from calendar
+  const handleUpdateDateStatus = async (status: 'present' | 'absent' | 'not_marked') => {
+    if (!currentStudent) return;
+    try {
+      await markStudentDateAttendance(
+        currentStudent.id,
+        selectedDayDate,
+        status,
+        `Calendar entry for ${selectedDayDate} marked as ${status.toUpperCase()} by ${adminProfile?.name || 'Teacher'}`
+      );
+      const statusLabel = status === 'present' ? 'Present' : status === 'absent' ? 'Absent' : 'Unmarked';
+      setActionFeedback(`Marked ${currentStudent.fullName} as ${statusLabel} on ${selectedDayDate}`);
+      setTimeout(() => setActionFeedback(null), 3500);
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   // Month Statistics for selected student
@@ -599,12 +629,12 @@ export const StudentCalendarView: React.FC<StudentCalendarViewProps> = ({
 
             {/* Quick jump holiday chips */}
             <div className="flex flex-wrap items-center gap-1.5">
-              {currentMonthHolidays.map(hol => {
+              {currentMonthHolidays.map((hol, idx) => {
                 const dayNum = parseInt(hol.date.split('-')[2], 10);
                 const isSelected = selectedDayDate === hol.date;
                 return (
                   <button
-                    key={hol.date}
+                    key={`${hol.date}-${idx}`}
                     onClick={() => setSelectedDayDate(hol.date)}
                     className={`px-2.5 py-1 rounded-xl text-[11px] font-semibold flex items-center gap-1.5 border transition-all cursor-pointer ${
                       isSelected
@@ -673,10 +703,10 @@ export const StudentCalendarView: React.FC<StudentCalendarViewProps> = ({
             {calendarGridDays.map((dayItem, idx) => {
               const isSelected = dayItem.dateStr === selectedDayDate;
               const records = attendanceByDate[dayItem.dateStr] || [];
-              const isPresent = records.some(r => r.status === 'present');
-              const isAbsent = records.some(r => r.status === 'absent');
-              const isToday =
-                new Date().toISOString().split('T')[0] === dayItem.dateStr;
+              const isFutureDate = dayItem.dateStr > todayStr;
+              const isPresent = !isFutureDate && records.some(r => r.status === 'present');
+              const isAbsent = !isFutureDate && records.some(r => r.status === 'absent');
+              const isToday = todayStr === dayItem.dateStr;
               const hasHoliday = !!dayItem.holiday;
 
               return (
@@ -744,6 +774,10 @@ export const StudentCalendarView: React.FC<StudentCalendarViewProps> = ({
                         <XCircle className="w-3 h-3 text-rose-400 shrink-0" />
                         <span className="truncate">Absent</span>
                       </div>
+                    ) : isFutureDate ? (
+                      <div className="text-[9px] text-slate-600 font-mono text-center">
+                        Upcoming
+                      </div>
                     ) : (
                       <div className="text-[9px] text-slate-500 font-mono flex items-center justify-between">
                         <span>{dayItem.date.getDay() <= 3 ? 'MDC' : 'Skill'}</span>
@@ -757,7 +791,7 @@ export const StudentCalendarView: React.FC<StudentCalendarViewProps> = ({
           </div>
         </div>
 
-        {/* Right Column (4 cols): Selected Day Period Inspector */}
+        {/* Right Column (4 cols): Selected Day Period Inspector & Attendance Editor */}
         <div className="lg:col-span-4 bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl flex flex-col justify-between space-y-4">
           <div className="space-y-3.5">
             {/* Inspector Header */}
@@ -801,63 +835,107 @@ export const StudentCalendarView: React.FC<StudentCalendarViewProps> = ({
                 </div>
               </div>
             ) : (
-              /* Attendance Status Callout for regular class day */
-              <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  {selectedDayInfo.isSunday ? (
-                    <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400">
-                      <Clock className="w-4 h-4" />
-                    </div>
-                  ) : selectedDayInfo.isPresent ? (
-                    <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
-                      <CheckCircle2 className="w-4 h-4" />
-                    </div>
-                  ) : selectedDayInfo.isAbsent ? (
-                    <div className="w-8 h-8 rounded-lg bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400">
-                      <XCircle className="w-4 h-4" />
-                    </div>
-                  ) : (
-                    <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400">
-                      <CalendarIcon className="w-4 h-4" />
-                    </div>
-                  )}
-                  <div>
-                    <div className="text-xs font-bold text-slate-200">
-                      {selectedDayInfo.isSunday
-                        ? 'Academic Off / Sunday'
-                        : selectedDayInfo.isPresent
-                        ? 'Marked Present'
-                        : selectedDayInfo.isAbsent
-                        ? 'Marked Absent'
-                        : 'Scheduled Classes'}
-                    </div>
-                    <div className="text-[10px] text-slate-400">
-                      {currentStudent?.fullName} ({currentStudent?.rollNumber || currentStudent?.studentId})
+              /* Attendance Status Callout & Quick Marker for Teacher */
+              <div className="space-y-3">
+                <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    {selectedDayInfo.isSunday ? (
+                      <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400">
+                        <Clock className="w-4 h-4" />
+                      </div>
+                    ) : selectedDayInfo.isPresent ? (
+                      <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+                        <CheckCircle2 className="w-4 h-4" />
+                      </div>
+                    ) : selectedDayInfo.isAbsent ? (
+                      <div className="w-8 h-8 rounded-lg bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400">
+                        <XCircle className="w-4 h-4" />
+                      </div>
+                    ) : (
+                      <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400">
+                        <CalendarIcon className="w-4 h-4" />
+                      </div>
+                    )}
+                    <div>
+                      <div className="text-xs font-bold text-slate-200">
+                        {selectedDayInfo.isSunday
+                          ? 'Academic Off / Sunday'
+                          : selectedDayInfo.isPresent
+                          ? 'Marked Present'
+                          : selectedDayInfo.isAbsent
+                          ? 'Marked Absent'
+                          : 'Not Marked'}
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        {currentStudent?.fullName} ({currentStudent?.rollNumber || currentStudent?.studentId})
+                      </div>
                     </div>
                   </div>
+
+                  {selectedDayInfo.dateStr > todayStr && (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">
+                      Future
+                    </span>
+                  )}
                 </div>
 
-                {/* Quick Status Toggle for Teacher/Admin */}
+                {/* Teacher / Admin Manual Attendance Marking Buttons for Past & Current Dates */}
                 {currentRole !== 'cr' && !selectedDayInfo.isSunday && (
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => {
-                        if (!currentStudent) return;
-                        markAttendance(
-                          currentStudent.id,
-                          selectedDayInfo.isPresent ? 'absent' : 'present',
-                          `Calendar override: Marked ${selectedDayInfo.isPresent ? 'Absent' : 'Present'} for ${selectedDayInfo.dateStr}`,
-                          'manual_admin'
-                        );
-                      }}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer ${
-                        selectedDayInfo.isPresent
-                          ? 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border-rose-500/30'
-                          : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                      }`}
-                    >
-                      {selectedDayInfo.isPresent ? 'Set Absent' : 'Mark Present'}
-                    </button>
+                  <div className="p-3 rounded-xl bg-slate-950/90 border border-slate-800/90 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Update Attendance for this Day</span>
+                      </span>
+                      <span className="text-[10px] font-mono text-emerald-400">
+                        {selectedDayInfo.dateStr}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        onClick={() => handleUpdateDateStatus('present')}
+                        className={`py-2 px-2 rounded-xl text-xs font-bold flex flex-col items-center justify-center gap-1 border transition-all cursor-pointer ${
+                          selectedDayInfo.isPresent
+                            ? 'bg-emerald-500/25 border-emerald-400 text-emerald-300 ring-2 ring-emerald-500/40 shadow-sm'
+                            : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-emerald-950/40 hover:border-emerald-500/50 hover:text-emerald-300'
+                        }`}
+                      >
+                        <CheckCircle2 className={`w-4 h-4 ${selectedDayInfo.isPresent ? 'text-emerald-400' : 'text-slate-400'}`} />
+                        <span>Present</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleUpdateDateStatus('absent')}
+                        className={`py-2 px-2 rounded-xl text-xs font-bold flex flex-col items-center justify-center gap-1 border transition-all cursor-pointer ${
+                          selectedDayInfo.isAbsent
+                            ? 'bg-rose-500/25 border-rose-400 text-rose-300 ring-2 ring-rose-500/40 shadow-sm'
+                            : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-rose-950/40 hover:border-rose-500/50 hover:text-rose-300'
+                        }`}
+                      >
+                        <XCircle className={`w-4 h-4 ${selectedDayInfo.isAbsent ? 'text-rose-400' : 'text-slate-400'}`} />
+                        <span>Absent</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleUpdateDateStatus('not_marked')}
+                        className={`py-2 px-2 rounded-xl text-xs font-bold flex flex-col items-center justify-center gap-1 border transition-all cursor-pointer ${
+                          !selectedDayInfo.isPresent && !selectedDayInfo.isAbsent
+                            ? 'bg-amber-500/20 border-amber-400/70 text-amber-300 ring-2 ring-amber-500/40 shadow-sm'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800 hover:border-slate-700 hover:text-slate-200'
+                        }`}
+                      >
+                        <Clock className={`w-4 h-4 ${!selectedDayInfo.isPresent && !selectedDayInfo.isAbsent ? 'text-amber-400' : 'text-slate-500'}`} />
+                        <span>Not Marked</span>
+                      </button>
+                    </div>
+
+                    {actionFeedback && (
+                      <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[11px] flex items-center gap-1.5 animate-fadeIn">
+                        <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <span>{actionFeedback}</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

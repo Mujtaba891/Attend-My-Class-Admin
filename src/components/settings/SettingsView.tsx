@@ -197,30 +197,34 @@ const EditProfileModal = ({ isOpen, onClose, adminProfile, updateProfile }: any)
 
 export const SettingsView: React.FC = () => {
   const { adminProfile, isMasterAdmin, logout, updateProfile } = useAuth();
-  const { updateSessionTime, updateSystemSchedule, activeSession } = useAttendance();
+  const { 
+    updateSessionTime, 
+    updateSystemSchedule, 
+    activeSession, 
+    currentClass, 
+    classes, 
+    scheduleMaster,
+    updateClassConfig, 
+    resetClassesToDefaults 
+  } = useAttendance();
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
-  const [startTime, setStartTime] = useState('12:00 PM');
-  const [endTime, setEndTime] = useState('12:10 PM');
-  const [duration, setDuration] = useState(48);
-  const [room, setRoom] = useState('Block C Room No 30');
+  
+  const [startTime, setStartTime] = useState(currentClass?.defaultStartTime || '10:40 AM');
+  const [endTime, setEndTime] = useState(currentClass?.defaultEndTime || '11:20 AM');
+  const [duration, setDuration] = useState(currentClass?.durationMinutes || 40);
+  const [room, setRoom] = useState(currentClass?.room || adminProfile.assignedRoom || 'Block C room no 30');
   const [isSaved, setIsSaved] = useState(false);
   const [timePickerTarget, setTimePickerTarget] = useState<'start' | 'end' | null>(null);
 
-  const currentAssignment = adminProfile.assignments?.find(a => 
-    a.subject === adminProfile.assignedSubject && 
-    (a.subjectType || 'All') === (adminProfile.assignedSubjectType || 'All')
-  ) || adminProfile.assignments?.[0];
-
+  // Sync with currentClass
   useEffect(() => {
-    if (currentAssignment) {
-      const st = currentAssignment.startTime || '10:00 AM';
-      const et = currentAssignment.endTime || '10:40 AM';
-      setStartTime(st);
-      setEndTime(et);
-      setDuration(calculateDurationMinutes(st, et));
-      setRoom(currentAssignment.room || adminProfile.assignedRoom || 'Lecture Hall 204');
+    if (currentClass) {
+      setStartTime(currentClass.defaultStartTime || '10:40 AM');
+      setEndTime(currentClass.defaultEndTime || '11:20 AM');
+      setDuration(currentClass.durationMinutes || calculateDurationMinutes(currentClass.defaultStartTime, currentClass.defaultEndTime));
+      setRoom(currentClass.room || adminProfile.assignedRoom || 'Block C room no 30');
     }
-  }, [currentAssignment]);
+  }, [currentClass, adminProfile.assignedRoom]);
 
   const handleTimePickerConfirm = (selectedTime: string) => {
     if (timePickerTarget === 'start') {
@@ -243,6 +247,17 @@ export const SettingsView: React.FC = () => {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // 1. Update the class config in classes & Firestore
+    if (currentClass?.id) {
+      updateClassConfig(currentClass.id, {
+        defaultStartTime: startTime,
+        defaultEndTime: endTime,
+        durationMinutes: duration,
+        room: room,
+      });
+    }
+
+    // 2. Update user assignments
     let updatedAssignments = [...(adminProfile.assignments || [])];
     if (updatedAssignments.length > 0) {
       const index = updatedAssignments.findIndex(a => 
@@ -262,7 +277,7 @@ export const SettingsView: React.FC = () => {
       updatedAssignments = [{
         id: `assign_${Date.now()}`,
         subject: adminProfile.assignedSubject || 'Geology',
-        subjectType: adminProfile.assignedSubjectType || 'Major',
+        subjectType: (adminProfile.assignedSubjectType || 'Minor') as any,
         className: adminProfile.assignedClass || 'Semester I - Section A',
         room,
         startTime,
@@ -285,6 +300,8 @@ export const SettingsView: React.FC = () => {
     setIsSaved(true);
     setTimeout(() => setIsSaved(false), 3000);
   };
+
+  const currentSelectedClass = currentClass;
 
   const futureSubjectBuckets = [
     { name: 'Major', status: 'Architecture Ready', active: true },
@@ -389,21 +406,49 @@ export const SettingsView: React.FC = () => {
           
           {/* Class Schedule & Attendance Window */}
           <div id="sys-config" className="p-4 sm:p-6 rounded-2xl bg-slate-900 border border-slate-800 shadow-xl space-y-5">
-            <div className="flex items-center gap-3 pb-2">
-              <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                <Clock className="w-5 h-5" />
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-800/80">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  <Clock className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-100 font-heading">
+                    Class Schedule & Attendance Window
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Active timing window for {adminProfile.assignedSubject || 'Geology'} ({adminProfile.assignedSubjectType || 'Minor'})
+                  </p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-base font-bold text-slate-100 font-heading">
-                  Class Schedule & Attendance Window
-                </h3>
-                <p className="text-xs text-slate-400">
-                  Configure your class timing and attendance window
-                </p>
-              </div>
+
+              <button
+                type="button"
+                onClick={resetClassesToDefaults}
+                className="self-start sm:self-auto px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] font-semibold text-slate-300 border border-slate-700 transition-colors"
+                title="Reset schedule to institutional timetable"
+              >
+                Reset to Timetable
+              </button>
             </div>
 
-            <form onSubmit={handleSave} className="space-y-5">
+            {/* Active Class Details Banner */}
+            <div className="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase">
+                  {adminProfile.assignedSubjectType || 'Minor'}
+                </span>
+                <span className="text-slate-200 font-semibold">
+                  {adminProfile.assignedSubject || 'Geology'}
+                </span>
+                <span className="text-slate-400">• {currentClass.days || 'Mon-Sat'}</span>
+              </div>
+              <span className="text-[11px] text-emerald-400 font-mono font-bold">
+                {startTime} - {endTime}
+              </span>
+            </div>
+
+            {/* Form for Active Class */}
+            <form onSubmit={handleSave} className="space-y-5 pt-1">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {/* Start Time Trigger Card */}
                 <div 
@@ -473,7 +518,7 @@ export const SettingsView: React.FC = () => {
                 </div>
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-3 pt-2">
                 <div className="flex items-center gap-2 text-slate-200 font-bold text-sm">
                   <ShieldCheck className="w-4 h-4 text-emerald-400" />
                   <span>Enforced Security Rules</span>
@@ -497,7 +542,7 @@ export const SettingsView: React.FC = () => {
               <div className="pt-2 flex items-center justify-between">
                 {isSaved ? (
                   <span className="text-xs text-emerald-400 font-semibold flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4" /> Configuration saved successfully!
+                    <CheckCircle2 className="w-4 h-4" /> Configuration saved for {adminProfile.assignedSubject || 'Geology'}!
                   </span>
                 ) : <div />}
                 <div className="ml-auto">
@@ -505,11 +550,115 @@ export const SettingsView: React.FC = () => {
                     type="submit"
                     className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold shadow-md transition-colors"
                   >
-                    Update Settings
+                    Save Schedule Settings
                   </button>
                 </div>
               </div>
             </form>
+          </div>
+
+          {/* Master Timetable Dataset Viewer */}
+          <div className="p-4 sm:p-6 rounded-2xl bg-slate-900 border border-slate-800 shadow-xl space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-800/80">
+              <div className="flex items-center gap-2.5">
+                <Calendar className="w-5 h-5 text-emerald-400" />
+                <div>
+                  <h3 className="text-sm font-bold text-slate-100">
+                    Institutional Master Timetable ({scheduleMaster?.academicYear || '2026-2027'})
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Live schedule & subject slot mappings fetched from database
+                  </p>
+                </div>
+              </div>
+              <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-950 text-emerald-400 border border-emerald-800/50 self-start sm:self-auto">
+                Firestore Synced
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-800 text-slate-400 text-[10px] uppercase font-mono tracking-wider">
+                    <th className="py-2 px-2 font-semibold">Period</th>
+                    <th className="py-2 px-2 font-semibold">Time Slot</th>
+                    <th className="py-2 px-2 font-semibold">Subject Type</th>
+                    <th className="py-2 px-2 font-semibold">Department / Subjects</th>
+                    <th className="py-2 px-2 font-semibold">Room</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 font-mono text-[11px]">
+                  {scheduleMaster?.periods?.map((period) => {
+                    const isFacultySubjectSlot = 
+                      (adminProfile.assignedSubjectType || '').toLowerCase() === (period.subjectType || '').toLowerCase() ||
+                      (period.subjectType === 'minor' && (adminProfile.assignedSubjectType || '').toLowerCase().includes('minor'));
+
+                    return (
+                      <tr 
+                        key={period.periodId} 
+                        className={`transition-colors ${
+                          isFacultySubjectSlot 
+                            ? 'bg-emerald-950/40 text-emerald-300 font-semibold' 
+                            : 'hover:bg-slate-800/30 text-slate-300'
+                        }`}
+                      >
+                        <td className="py-2.5 px-2">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold">{period.name}</span>
+                            {isFacultySubjectSlot && (
+                              <span className="px-1.5 py-0.2 text-[8px] font-extrabold uppercase rounded bg-emerald-500 text-slate-950">
+                                Active
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-2 text-slate-200">
+                          {period.startTime} - {period.endTime}
+                        </td>
+                        <td className="py-2.5 px-2 font-sans font-medium">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                            period.subjectType === 'minor' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
+                            period.subjectType === 'major' ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30' :
+                            period.subjectType === 'lab' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' :
+                            period.subjectType === 'vac' ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' :
+                            'bg-slate-800 text-slate-300'
+                          }`}>
+                            {period.subjectType}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-2 font-sans text-xs text-slate-300">
+                          {period.subjectType === 'minor' && <span>Minor Subjects (Geology, Physics, Chemistry, Botany, etc.)</span>}
+                          {period.subjectType === 'major' && <span>Major Core Subjects (Section Matrix A, B, C, D, E)</span>}
+                          {period.subjectType === 'lab' && <span>Core Practical Lab (Batches G1, G2, G3)</span>}
+                          {period.subjectType === 'vac' && <span>Value Added Course (VAC 1 & VAC 2 Pool)</span>}
+                          {period.subjectType === 'aec' && <span>Ability Enhancement Course (AEC)</span>}
+                          {period.subjectType === 'mdc' && <span>Multidisciplinary / SEC Course</span>}
+                        </td>
+                        <td className="py-2.5 px-2 text-slate-400">
+                          {period.defaultRoom || 'Department Lab'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* VAC Subjects quick chips */}
+            {scheduleMaster?.vacSubjects && scheduleMaster.vacSubjects.length > 0 && (
+              <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                  Configured VAC Subjects (Period 8: 02:00 - 02:40 PM):
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {scheduleMaster.vacSubjects.map((vac) => (
+                    <span key={vac.code} className="px-2 py-1 rounded-md bg-slate-950 border border-slate-800 text-[10px] text-slate-300">
+                      <strong className="text-purple-400">{vac.code}:</strong> {vac.label} ({vac.description})
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

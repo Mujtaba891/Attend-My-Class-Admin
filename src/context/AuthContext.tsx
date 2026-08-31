@@ -168,6 +168,10 @@ interface AuthContextType {
   logout: () => Promise<void>;
   switchRole: (role: UserRole) => void;
   updateProfile: (updates: Partial<AdminUser>) => void;
+  addSubjectAssignment: (assignment: Omit<TeachingAssignment, 'id'>) => Promise<void>;
+  deleteSubjectAssignment: (assignmentId: string) => Promise<void>;
+  updateSubjectAssignment: (assignmentId: string, updates: Partial<TeachingAssignment>) => Promise<void>;
+  setActiveSubjectAssignment: (assignment: TeachingAssignment) => Promise<void>;
   hasPermission: (action: string) => boolean;
 }
 
@@ -747,6 +751,161 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   };
 
+  const addSubjectAssignment = async (assignment: Omit<TeachingAssignment, 'id'>) => {
+    const newAssignment: TeachingAssignment = {
+      ...assignment,
+      id: `assign_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    };
+
+    setAdminProfile(prev => {
+      const currentList = prev.assignments || [];
+      const updatedAssignments = [...currentList, newAssignment];
+      const updated: AdminUser = {
+        ...prev,
+        assignedSubject: newAssignment.subject,
+        assignedSubjectType: newAssignment.subjectType || 'MDC',
+        assignedClass: newAssignment.className,
+        assignedRoom: newAssignment.room || prev.assignedRoom,
+        assignments: updatedAssignments,
+        updatedAt: new Date().toISOString(),
+      };
+
+      if (updated.uid && updated.uid !== 'faculty_default') {
+        const firestoreData = sanitizeFirestoreData({ ...updated });
+        const userRef = doc(db, 'users', updated.uid);
+        setDoc(userRef, firestoreData, { merge: true }).catch(err => {
+          console.warn('Failed to sync new subject to Firestore:', err);
+        });
+        if (updated.role === 'admin' || updated.role === 'teacher') {
+          const adminRef = doc(db, 'admins', updated.uid);
+          setDoc(adminRef, firestoreData, { merge: true }).catch(() => {});
+        }
+      }
+
+      return updated;
+    });
+  };
+
+  const deleteSubjectAssignment = async (assignmentId: string) => {
+    setAdminProfile(prev => {
+      const currentList = prev.assignments || [];
+      const target = currentList.find(a => a.id === assignmentId || a.subject === assignmentId);
+      const updatedAssignments = currentList.filter(a => a.id !== assignmentId && a.subject !== assignmentId);
+      
+      let nextActiveSubject = prev.assignedSubject;
+      let nextActiveType = prev.assignedSubjectType;
+      let nextActiveClass = prev.assignedClass;
+      let nextActiveRoom = prev.assignedRoom;
+
+      // If the deleted assignment was currently active, switch to next available
+      if (target && prev.assignedSubject === target.subject) {
+        if (updatedAssignments.length > 0) {
+          const next = updatedAssignments[0];
+          nextActiveSubject = next.subject;
+          nextActiveType = next.subjectType || 'MDC';
+          nextActiveClass = next.className;
+          nextActiveRoom = next.room || prev.assignedRoom;
+        } else {
+          // If no assignments left, reset to baseline Geology
+          nextActiveSubject = 'Geology';
+          nextActiveType = 'MDC';
+          nextActiveClass = 'Semester I - Section A';
+          nextActiveRoom = 'Block C room no 30';
+        }
+      }
+
+      const updated: AdminUser = {
+        ...prev,
+        assignedSubject: nextActiveSubject,
+        assignedSubjectType: nextActiveType,
+        assignedClass: nextActiveClass,
+        assignedRoom: nextActiveRoom,
+        assignments: updatedAssignments,
+        updatedAt: new Date().toISOString(),
+      };
+
+      if (updated.uid && updated.uid !== 'faculty_default') {
+        const firestoreData = sanitizeFirestoreData({ ...updated });
+        const userRef = doc(db, 'users', updated.uid);
+        setDoc(userRef, firestoreData, { merge: true }).catch(err => {
+          console.warn('Failed to sync deleted subject to Firestore:', err);
+        });
+        if (updated.role === 'admin' || updated.role === 'teacher') {
+          const adminRef = doc(db, 'admins', updated.uid);
+          setDoc(adminRef, firestoreData, { merge: true }).catch(() => {});
+        }
+      }
+
+      return updated;
+    });
+  };
+
+  const updateSubjectAssignment = async (assignmentId: string, updates: Partial<TeachingAssignment>) => {
+    setAdminProfile(prev => {
+      const currentList = prev.assignments || [];
+      const updatedAssignments = currentList.map(a => {
+        if (a.id === assignmentId || a.subject === assignmentId) {
+          return { ...a, ...updates };
+        }
+        return a;
+      });
+
+      const updatedActive = updatedAssignments.find(a => a.id === assignmentId || a.subject === assignmentId);
+      const isCurrentlyActive = updatedActive && prev.assignedSubject === (updates.subject || updatedActive.subject);
+
+      const updated: AdminUser = {
+        ...prev,
+        assignedSubject: isCurrentlyActive && updates.subject ? updates.subject : prev.assignedSubject,
+        assignedSubjectType: isCurrentlyActive && updates.subjectType ? updates.subjectType : prev.assignedSubjectType,
+        assignedClass: isCurrentlyActive && updates.className ? updates.className : prev.assignedClass,
+        assignedRoom: isCurrentlyActive && updates.room ? updates.room : prev.assignedRoom,
+        assignments: updatedAssignments,
+        updatedAt: new Date().toISOString(),
+      };
+
+      if (updated.uid && updated.uid !== 'faculty_default') {
+        const firestoreData = sanitizeFirestoreData({ ...updated });
+        const userRef = doc(db, 'users', updated.uid);
+        setDoc(userRef, firestoreData, { merge: true }).catch(err => {
+          console.warn('Failed to sync updated subject to Firestore:', err);
+        });
+        if (updated.role === 'admin' || updated.role === 'teacher') {
+          const adminRef = doc(db, 'admins', updated.uid);
+          setDoc(adminRef, firestoreData, { merge: true }).catch(() => {});
+        }
+      }
+
+      return updated;
+    });
+  };
+
+  const setActiveSubjectAssignment = async (assignment: TeachingAssignment) => {
+    setAdminProfile(prev => {
+      const updated: AdminUser = {
+        ...prev,
+        assignedSubject: assignment.subject,
+        assignedSubjectType: assignment.subjectType || 'MDC',
+        assignedClass: assignment.className,
+        assignedRoom: assignment.room || prev.assignedRoom,
+        updatedAt: new Date().toISOString(),
+      };
+
+      if (updated.uid && updated.uid !== 'faculty_default') {
+        const firestoreData = sanitizeFirestoreData({ ...updated });
+        const userRef = doc(db, 'users', updated.uid);
+        setDoc(userRef, firestoreData, { merge: true }).catch(err => {
+          console.warn('Failed to sync active subject to Firestore:', err);
+        });
+        if (updated.role === 'admin' || updated.role === 'teacher') {
+          const adminRef = doc(db, 'admins', updated.uid);
+          setDoc(adminRef, firestoreData, { merge: true }).catch(() => {});
+        }
+      }
+
+      return updated;
+    });
+  };
+
   const switchRole = (newRole: UserRole) => {
     setCurrentRole(newRole);
     setAdminProfile(prev => ({
@@ -782,6 +941,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         logout,
         switchRole,
         updateProfile,
+        addSubjectAssignment,
+        deleteSubjectAssignment,
+        updateSubjectAssignment,
+        setActiveSubjectAssignment,
         hasPermission,
       }}
     >

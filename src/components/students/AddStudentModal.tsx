@@ -34,6 +34,7 @@ export const AddStudentModal: React.FC<AddStudentModalProps> = ({ isOpen, onClos
       email,
       phone,
       course,
+      mdc: 'Geology',
       batch,
       section,
       accountStatus: 'active',

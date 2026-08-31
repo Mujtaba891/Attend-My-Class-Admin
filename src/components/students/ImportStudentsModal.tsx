@@ -64,6 +64,7 @@ export const ImportStudentsModal: React.FC<ImportStudentsModalProps> = ({ isOpen
           email,
           phone,
           course: 'B.Sc. (Hons) Degree Course',
+          mdc: 'Geology',
           batch: '2024-2027',
           section,
           accountStatus: 'active',

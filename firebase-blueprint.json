@@ -26,6 +26,13 @@
         "email": { "type": "string", "maxLength": 150 },
         "phone": { "type": "string", "maxLength": 30 },
         "course": { "type": "string", "maxLength": 80 },
+        "major": { "type": "string", "maxLength": 80 },
+        "minor": { "type": "string", "maxLength": 80 },
+        "mdc": { "type": "string", "maxLength": 80 },
+        "vac1": { "type": "string", "maxLength": 80 },
+        "vac2": { "type": "string", "maxLength": 80 },
+        "skills": { "type": "string", "maxLength": 80 },
+        "aec": { "type": "string", "maxLength": 80 },
         "semester": { "type": "string", "maxLength": 30 },
         "section": { "type": "string", "maxLength": 20 },
         "enrollmentDate": { "type": "string" },
@@ -179,6 +186,24 @@
         "createdAt": { "type": "string" }
       },
       "required": ["email", "status"]
+    },
+    "TimetableSchedule": {
+      "title": "TimetableSchedule",
+      "description": "Institutional master timetable periods, section matrix, VAC subjects and lab batches",
+      "type": "object",
+      "properties": {
+        "academicYear": { "type": "string", "maxLength": 50 },
+        "department": { "type": "string", "maxLength": 100 },
+        "semester": { "type": "string", "maxLength": 50 },
+        "scheduleVersion": { "type": "string", "maxLength": 30 },
+        "updatedAt": { "type": "string" },
+        "updatedBy": { "type": "string", "maxLength": 100 },
+        "periods": { "type": "array" },
+        "sectionMatrix": { "type": "object" },
+        "vacSubjects": { "type": "array" },
+        "labBatches": { "type": "array" }
+      },
+      "required": ["academicYear", "department", "periods"]
     }
   },
   "firestore": {
@@ -217,6 +242,10 @@
     "/crDelegations/{delegationId}": {
       "schema": { "$ref": "#/entities/CRDelegation" },
       "description": "Class Representative delegated permissions"
+    },
+    "/timetableSchedule/{scheduleId}": {
+      "schema": { "$ref": "#/entities/TimetableSchedule" },
+      "description": "Master institutional schedule and timetable definition"
     }
   }
 }

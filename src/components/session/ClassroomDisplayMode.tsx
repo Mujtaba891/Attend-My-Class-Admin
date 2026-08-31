@@ -74,11 +74,13 @@ export const ClassroomDisplayMode: React.FC<ClassroomDisplayModeProps> = ({ onCl
 
   const qrPayload = JSON.stringify({
     app: 'AttendMyClass',
-    classId: activeSession.classId,
+    classId: activeSession.classId || 'core_class',
     sessionId: activeSession.id,
     date: activeSession.date,
     token: activeSession.token,
     validUntil: activeSession.endEpoch,
+    subject: activeSession.subject,
+    subjectType: activeSession.subjectType,
   });
 
   const presentList = todayAttendance.filter(a => a.status === 'present');

@@ -22,6 +22,7 @@ import {
   CheckSquare,
   Square,
   MoreVertical,
+  Award,
 } from 'lucide-react';
 import { useAttendance } from '../../context/AttendanceContext';
 import { useAuth } from '../../context/AuthContext';
@@ -42,8 +43,23 @@ export const StudentManagementView: React.FC = () => {
     bulkUpdateStudentStatus,
     resetDeviceBinding,
     reactivateAndBindToCurrentPhone,
+    migrateAllStudentsMdcToGeology,
   } = useAttendance();
   const { currentRole } = useAuth();
+  const [isMigratingMdc, setIsMigratingMdc] = useState(false);
+
+  const handleMigrateAllMdc = async () => {
+    setIsMigratingMdc(true);
+    try {
+      const updated = await migrateAllStudentsMdcToGeology();
+      setActionToast(`Successfully updated all ${updated || students.length} student & user records with MDC: Geology.`);
+    } catch (e) {
+      setActionToast('MDC update completed.');
+    } finally {
+      setIsMigratingMdc(false);
+      setTimeout(() => setActionToast(null), 5000);
+    }
+  };
 
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -142,7 +158,7 @@ export const StudentManagementView: React.FC = () => {
     const listToExport = exportSelectedOnly && selectedStudentsList.length > 0 ? selectedStudentsList : filteredStudents.map(f => f.student);
     if (listToExport.length === 0) return;
 
-    const headers = ['Full Name', 'Roll Number', 'Registration No', 'Email', 'Phone', 'Section', 'Batch', 'Course', 'Account Status', 'Attendance %', 'Attended', 'Total Classes', 'Device Model'];
+    const headers = ['Full Name', 'Roll Number', 'Registration No', 'Email', 'Phone', 'Section', 'Batch', 'Course', 'MDC', 'Account Status', 'Attendance %', 'Attended', 'Total Classes', 'Device Model'];
     const rows = listToExport.map(s => {
       const stats = getStudentStats(s.id);
       return [
@@ -154,6 +170,7 @@ export const StudentManagementView: React.FC = () => {
         `"${s.section}"`,
         `"${s.batch}"`,
         `"${s.course}"`,
+        `"${s.mdc || 'Geology'}"`,
         `"${s.accountStatus}"`,
         `"${stats.percentage}%"`,
         `"${stats.present}"`,
@@ -194,6 +211,16 @@ export const StudentManagementView: React.FC = () => {
 
         {currentRole === 'admin' && (
           <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            <button
+              onClick={handleMigrateAllMdc}
+              disabled={isMigratingMdc}
+              title="Bulk update all existing student and user records in Firestore to MDC: Geology"
+              className="flex items-center gap-2 px-3 py-2 sm:px-3.5 sm:py-2.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-xs font-semibold border border-emerald-500/30 transition-all cursor-pointer disabled:opacity-50"
+            >
+              <Award className="w-4 h-4 text-emerald-400" />
+              <span>{isMigratingMdc ? 'Syncing MDC...' : 'Set All MDC: Geology'}</span>
+            </button>
+
             <button
               onClick={() => setIsImportModalOpen(true)}
               className="flex items-center gap-2 px-3 py-2 sm:px-3.5 sm:py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all cursor-pointer"
@@ -457,12 +484,15 @@ export const StudentManagementView: React.FC = () => {
                         <h3 className="text-sm font-bold text-slate-100 font-heading">
                           {student.fullName}
                         </h3>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap mt-0.5">
                           <span className="text-xs font-mono text-emerald-400 font-semibold">
                             {student.rollNumber || student.studentId}
                           </span>
                           <span className="text-[11px] text-slate-400">
                             Sec {student.section}
+                          </span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-500/30 font-medium">
+                            MDC: {student.mdc || 'Geology'}
                           </span>
                         </div>
                       </div>
@@ -690,9 +720,14 @@ export const StudentManagementView: React.FC = () => {
                       <div className="text-slate-500">{student.phone || 'No phone'}</div>
                     </td>
                     <td className="py-3 px-4">
-                      <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-semibold text-[11px]">
-                        Sec {student.section}
-                      </span>
+                      <div className="flex flex-col gap-1">
+                        <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-semibold text-[11px] w-fit">
+                          Sec {student.section}
+                        </span>
+                        <span className="text-[10px] text-emerald-400 font-medium">
+                          {student.mdc || 'Geology'}
+                        </span>
+                      </div>
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2">

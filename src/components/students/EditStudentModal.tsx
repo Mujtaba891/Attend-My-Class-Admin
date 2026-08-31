@@ -40,6 +40,7 @@ export const EditStudentModal: React.FC<EditStudentModalProps> = ({
   const [section, setSection] = useState<string>('A');
   const [batch, setBatch] = useState('');
   const [course, setCourse] = useState('');
+  const [mdc, setMdc] = useState('Geology');
   const [accountStatus, setAccountStatus] = useState<AccountStatus>('active');
   const [lockReason, setLockReason] = useState('');
   const [deviceModel, setDeviceModel] = useState('');
@@ -58,6 +59,7 @@ export const EditStudentModal: React.FC<EditStudentModalProps> = ({
       setSection(rawSec || 'A');
       setBatch(student.batch || '2024-2027');
       setCourse(student.course || 'B.Sc. Geology');
+      setMdc(student.mdc || 'Geology');
       setAccountStatus(student.accountStatus || 'active');
       setLockReason(student.lockReason || '');
       setDeviceModel(student.authorizedDeviceModel || '');
@@ -81,6 +83,7 @@ export const EditStudentModal: React.FC<EditStudentModalProps> = ({
       section,
       batch,
       course,
+      mdc: mdc || 'Geology',
       accountStatus,
       lockReason: accountStatus !== 'active' ? lockReason : undefined,
       authorizedDeviceModel: deviceModel || undefined,
@@ -200,6 +203,19 @@ export const EditStudentModal: React.FC<EditStudentModalProps> = ({
                   value={registrationNumber}
                   onChange={e => setRegistrationNumber(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-slate-200 font-mono focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1">
+                  MDC Subject (Multi-Disciplinary Course)
+                </label>
+                <input
+                  type="text"
+                  value={mdc}
+                  onChange={e => setMdc(e.target.value)}
+                  placeholder="e.g. Geology"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-emerald-300 font-semibold focus:outline-none focus:border-emerald-500"
                 />
               </div>
 

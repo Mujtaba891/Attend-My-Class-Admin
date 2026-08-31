@@ -13,9 +13,12 @@ import {
   Radio,
   CheckCircle2,
   Menu,
+  Trash2,
+  Settings2,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useAttendance } from '../../context/AttendanceContext';
+import { SubjectManagementModal } from '../settings/SubjectManagementModal';
 
 interface NavbarProps {
   onOpenClassroomDisplay: () => void;
@@ -28,7 +31,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onNavigate,
   onToggleMobileMenu,
 }) => {
-  const { adminProfile, currentRole, logout, updateProfile } = useAuth();
+  const { adminProfile, currentRole, logout, updateProfile, deleteSubjectAssignment } = useAuth();
   const {
     activeSession,
     currentClass,
@@ -42,6 +45,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   } = useAttendance();
 
   const [showRoleMenu, setShowRoleMenu] = useState(false);
+  const [isSubjectModalOpen, setIsSubjectModalOpen] = useState(false);
 
   useEffect(() => {
     const handleOpen = () => {
@@ -299,12 +303,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                     {currentRole !== 'cr' && (
                       <button 
                         onClick={() => {
-                          localStorage.setItem('faculty_prefill_email', adminProfile.email);
-                          logout();
+                          setIsSubjectModalOpen(true);
                           setShowRoleMenu(false);
                         }}
-                        className="p-1 rounded bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors"
-                        title="Add New Subject Profile"
+                        className="p-1 rounded bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors cursor-pointer"
+                        title="Add or Manage Subjects"
                       >
                         <Plus className="w-3 h-3" />
                       </button>
@@ -313,29 +316,75 @@ export const Navbar: React.FC<NavbarProps> = ({
                   {adminProfile.assignments.map(a => {
                     const isActive = adminProfile.assignedSubject === a.subject && adminProfile.assignedClass === a.className;
                     return (
-                      <button
+                      <div
                         key={a.id}
                         onClick={() => {
                           updateProfile({ assignedSubject: a.subject, assignedSubjectType: a.subjectType || 'All', assignedClass: a.className, assignedRoom: a.room });
                           setShowRoleMenu(false);
                         }}
-                        className={`w-full text-left p-2 rounded-lg border transition-colors cursor-pointer ${isActive ? 'bg-blue-500/15 border-blue-500/40 text-blue-200' : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 text-slate-300'}`}
+                        className={`group w-full text-left p-2 rounded-lg border transition-colors cursor-pointer flex items-center justify-between ${isActive ? 'bg-blue-500/15 border-blue-500/40 text-blue-200' : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 text-slate-300'}`}
                       >
-                        <div className="flex items-center justify-between">
-                          <span className={`text-[11px] font-bold ${isActive ? 'text-blue-300' : 'text-slate-200'}`}>
-                            {a.subject} {a.subjectType && a.subjectType !== 'All' && a.subjectType !== 'CR Subject' ? `(${a.subjectType})` : ''}
-                          </span>
-                          {isActive && <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded-sm bg-blue-500/20 text-blue-400">Active</span>}
+                        <div className="min-w-0 flex-1 pr-2">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`text-[11px] font-bold truncate ${isActive ? 'text-blue-300' : 'text-slate-200'}`}>
+                              {a.subject}
+                            </span>
+                            {a.subjectType && a.subjectType !== 'All' && a.subjectType !== 'CR Subject' && (
+                              <span className="text-[9px] px-1 rounded bg-slate-800 text-slate-400 font-mono">
+                                {a.subjectType}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-slate-400 mt-0.5 truncate">{a.className} {a.room ? `• ${a.room}` : ''}</div>
                         </div>
-                        <div className="text-[10px] text-slate-400 mt-0.5">{a.className} {a.room ? `• ${a.room}` : ''}</div>
-                      </button>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          {isActive && <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded-sm bg-blue-500/20 text-blue-400">Active</span>}
+                          {currentRole !== 'cr' && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteSubjectAssignment(a.id);
+                              }}
+                              title="Delete Subject"
+                              className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-rose-500/20 text-slate-500 hover:text-rose-400 transition-all cursor-pointer"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     );
                   })}
+
+                  {currentRole !== 'cr' && (
+                    <button
+                      onClick={() => {
+                        setIsSubjectModalOpen(true);
+                        setShowRoleMenu(false);
+                      }}
+                      className="w-full text-center py-1.5 text-[11px] text-emerald-400 hover:text-emerald-300 font-semibold transition-colors cursor-pointer"
+                    >
+                      + Add or Manage Subjects
+                    </button>
+                  )}
                 </div>
               ) : adminProfile.assignedSubject ? (
                 <div className="py-2.5 border-b border-slate-800 text-[11px] text-slate-400 space-y-1">
                   <div><strong className="text-slate-300">Course:</strong> {adminProfile.assignedSubject}</div>
                   <div><strong className="text-slate-300">Class:</strong> {adminProfile.assignedClass}</div>
+                  {currentRole !== 'cr' && (
+                    <button
+                      onClick={() => {
+                        setIsSubjectModalOpen(true);
+                        setShowRoleMenu(false);
+                      }}
+                      className="w-full text-center py-1.5 text-[11px] text-emerald-400 hover:text-emerald-300 font-semibold transition-colors cursor-pointer"
+                    >
+                      + Add Subjects
+                    </button>
+                  )}
                 </div>
               ) : null}
 
@@ -356,6 +405,12 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
         </div>
       </div>
+
+      {/* Full Subject Management Modal */}
+      <SubjectManagementModal
+        isOpen={isSubjectModalOpen}
+        onClose={() => setIsSubjectModalOpen(false)}
+      />
     </header>
   );
 };

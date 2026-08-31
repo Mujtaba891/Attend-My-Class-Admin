@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import {
   collection,
   doc,
+  getDocs,
   setDoc,
   updateDoc,
   deleteDoc,
@@ -22,6 +23,8 @@ import {
   AccountStatus,
   StudentAttendanceStats,
   CRDelegation,
+  ScheduleMaster,
+  TimetablePeriod,
 } from '../types';
 import {
   INITIAL_STUDENTS,
@@ -31,6 +34,7 @@ import {
   INITIAL_ACTIVITY_LOGS,
   INITIAL_NOTIFICATIONS,
   INITIAL_CLASSES,
+  INITIAL_SCHEDULE_MASTER,
 } from '../data/seedData';
 import { useAuth } from './AuthContext';
 
@@ -46,19 +50,24 @@ interface AttendanceContextType {
   crDelegations: CRDelegation[];
   classes: ClassConfig[];
   currentClass: ClassConfig;
+  scheduleMaster: ScheduleMaster;
   currentTime: Date;
   sessionCountdown: string;
   isSessionActive: boolean;
+  sessionValidationError: string | null;
+  clearSessionValidationError: () => void;
 
   // Actions
   updateClassConfig: (classId: string, updates: Partial<ClassConfig>) => void;
-  startSessionManually: () => void;
+  resetClassesToDefaults: () => void;
+  startSessionManually: () => Promise<{ success: boolean; message?: string }>;
   closeSessionManually: () => void;
   extendSession: (extraMinutes: number) => void;
   updateSessionTime: (startTimeStr: string, endTimeStr: string) => void;
   updateSystemSchedule: (newSched: { startTime: string; endTime: string; duration: number; room: string }) => void;
   regenerateToken: () => void;
   markAttendance: (studentId: string, status: AttendanceStatus, notes?: string, method?: AttendanceMethod) => void;
+  markStudentDateAttendance: (studentId: string, dateStr: string, status: AttendanceStatus, notes?: string) => Promise<void>;
   bulkMarkStatus: (status: AttendanceStatus, targetIds?: string[]) => void;
   
   // Student Actions
@@ -82,6 +91,7 @@ interface AttendanceContextType {
   approveCorrectionRequest: (requestId: string, decisionNotes?: string) => void;
   rejectCorrectionRequest: (requestId: string, decisionNotes?: string) => void;
   getStudentMonthlyCorrectionCount: (studentId: string, monthKey?: string) => number;
+  migrateAllStudentsMdcToGeology: () => Promise<number>;
   
   // Stats & Utilities
   getStudentStats: (studentId: string) => StudentAttendanceStats;
@@ -105,17 +115,21 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   });
 
   const students = useMemo(() => {
-    if (!adminProfile || adminProfile.role === 'admin') {
+    if (!adminProfile) {
       return rawStudents;
     }
 
     const assignedSubject = (adminProfile.assignedSubject || '').trim();
-    if (!assignedSubject || assignedSubject.toLowerCase() === 'all' || assignedSubject.toLowerCase() === 'all subjects') {
+    const assignedType = (adminProfile.assignedSubjectType || '').trim();
+
+    // If teacher/admin has selected or is set to All Subjects, show all students
+    if ((!assignedSubject || assignedSubject.toLowerCase() === 'all' || assignedSubject.toLowerCase() === 'all subjects') &&
+        (!assignedType || assignedType.toLowerCase() === 'all' || assignedType.toLowerCase() === 'all subjects')) {
       return rawStudents;
     }
 
-    const targetClean = assignedSubject.toLowerCase().replace(/\(mdc\)|\(cr subject\)|\(major\)|\(minor\)/gi, '').trim();
-    const targetType = adminProfile.assignedSubjectType as string | undefined;
+    const targetClean = assignedSubject.toLowerCase().replace(/\(mdc\)|\(cr subject\)|\(major\)|\(minor\)|\(skills\)|\(sec\)|\(aec\)|\(vac 1\)|\(vac 2\)|\(vac i\)|\(vac ii\)/gi, '').trim();
+    const targetType = assignedType || (adminProfile.role === 'cr' ? 'CR Subject' : '');
 
     const filtered = rawStudents.filter(student => {
       const sMajor = (student.major || '').toLowerCase().trim();
@@ -127,45 +141,52 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const sVac2 = (student.vac2 || '').toLowerCase().trim();
       const sCourse = (student.course || '').toLowerCase().trim();
 
-      // If targetType is MDC or if user is CR with MDC/CR Subject/unspecified
-      const isMDCCourse = targetType === 'MDC' || (adminProfile.role === 'cr' && (targetType === 'CR Subject' || !targetType || targetType === 'MDC'));
-
-      if (isMDCCourse && sMdc) {
+      // Check based on subjectType if explicitly specified
+      if ((targetType === 'MDC' || targetType === 'mdc') && sMdc) {
+        if (!targetClean || targetClean === 'all') return true;
         return sMdc === targetClean || targetClean.includes(sMdc) || sMdc.includes(targetClean);
       }
-
-      // Check based on subjectType if explicitly specified
-      if (targetType === 'Major' && sMajor) {
+      if ((targetType === 'Major' || targetType === 'major') && sMajor) {
+        if (!targetClean || targetClean === 'all') return true;
         return sMajor === targetClean || targetClean.includes(sMajor) || sMajor.includes(targetClean);
       }
-      if (targetType === 'Minor' && sMinor) {
+      if ((targetType === 'Minor' || targetType === 'minor') && sMinor) {
+        if (!targetClean || targetClean === 'all') return true;
         return sMinor === targetClean || targetClean.includes(sMinor) || sMinor.includes(targetClean);
       }
-      if (targetType === 'MDC' && sMdc) {
-        return sMdc === targetClean || targetClean.includes(sMdc) || sMdc.includes(targetClean);
-      }
-      if (targetType === 'Skills' && sSkills) {
+      if ((targetType === 'Skills' || targetType === 'Skill / SEC' || targetType === 'Skill' || targetType === 'skill' || targetType === 'SEC') && sSkills) {
+        if (!targetClean || targetClean === 'all') return true;
         return sSkills === targetClean || targetClean.includes(sSkills) || sSkills.includes(targetClean);
       }
-      if (targetType === 'AEC' && sAec) {
+      if ((targetType === 'AEC' || targetType === 'aec' || targetType === 'AECC') && sAec) {
+        if (!targetClean || targetClean === 'all') return true;
         return sAec === targetClean || targetClean.includes(sAec) || sAec.includes(targetClean);
       }
-      if (targetType === 'VAC 1' && sVac1) {
+      if ((targetType === 'VAC 1' || targetType === 'VAC I (Mon-Wed)' || targetType === 'VAC 1 (Mon-Wed)' || targetType === 'VAC I' || targetType === 'vac1') && sVac1) {
+        if (!targetClean || targetClean === 'all') return true;
         return sVac1 === targetClean || targetClean.includes(sVac1) || sVac1.includes(targetClean);
       }
-      if (targetType === 'VAC 2' && sVac2) {
+      if ((targetType === 'VAC 2' || targetType === 'VAC II (Thu-Sat)' || targetType === 'VAC 2 (Thu-Sat)' || targetType === 'VAC II' || targetType === 'vac2') && sVac2) {
+        if (!targetClean || targetClean === 'all') return true;
         return sVac2 === targetClean || targetClean.includes(sVac2) || sVac2.includes(targetClean);
+      }
+      if (targetType === 'Practical' || targetType === 'practical') {
+        if (!targetClean || targetClean === 'all') return true;
+        return sMajor === targetClean || targetClean.includes(sMajor) || sMajor.includes(targetClean);
       }
 
       // Default or CR Subject matching across specific subject fields (excluding generic course degree name)
-      const specificSubjects = [sMdc, sMajor, sMinor, sSkills, sAec, sVac1, sVac2].filter(Boolean);
-      if (specificSubjects.length > 0) {
-        return specificSubjects.some(sub => 
-          sub === targetClean || targetClean.includes(sub) || sub.includes(targetClean)
-        );
+      if (targetClean && targetClean !== 'all') {
+        const specificSubjects = [sMdc, sMajor, sMinor, sSkills, sAec, sVac1, sVac2].filter(Boolean);
+        if (specificSubjects.length > 0) {
+          return specificSubjects.some(sub => 
+            sub === targetClean || targetClean.includes(sub) || sub.includes(targetClean)
+          );
+        }
+        return sCourse === targetClean || targetClean.includes(sCourse) || sCourse.includes(targetClean);
       }
 
-      return sCourse === targetClean || targetClean.includes(sCourse) || sCourse.includes(targetClean);
+      return true;
     });
 
     return filtered;
@@ -205,10 +226,42 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     localStorage.setItem('amc_cr_delegations', JSON.stringify(crDelegations));
   }, [crDelegations]);
 
+  const [scheduleMaster, setScheduleMaster] = useState<ScheduleMaster>(() => {
+    try {
+      const saved = localStorage.getItem('amc_schedule_master');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && Array.isArray(parsed.periods) && parsed.periods.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return INITIAL_SCHEDULE_MASTER;
+  });
+
+  const format24to12 = useCallback((time24: string): string => {
+    if (!time24) return '10:00 AM';
+    const match = time24.trim().match(/^(\d{1,2}):(\d{2})$/);
+    if (!match) return time24;
+    let h = parseInt(match[1], 10);
+    const m = match[2];
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    if (h > 12) h -= 12;
+    if (h === 0) h = 12;
+    return `${h.toString().padStart(2, '0')}:${m} ${ampm}`;
+  }, []);
+
   const [classes, setClasses] = useState<ClassConfig[]>(() => {
     try {
       const saved = localStorage.getItem('amc_classes');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed: ClassConfig[] = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Merge with INITIAL_CLASSES to guarantee all 8 class slots exist
+          return INITIAL_CLASSES.map(initC => {
+            const match = parsed.find(p => p.id === initC.id || p.category === initC.category);
+            return match ? { ...initC, ...match } : initC;
+          });
+        }
+      }
     } catch (e) {}
     return INITIAL_CLASSES;
   });
@@ -231,7 +284,26 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   });
 
   const currentClass = useMemo(() => {
-    const baseClass = classes.find(c => c.id === 'core_class') || classes[0];
+    const facultyType = (adminProfile?.assignedSubjectType || '').trim().toLowerCase();
+    
+    // Find matching class from classes configuration
+    let matchingClass = classes.find(c => {
+      const cCat = (c.category || '').toLowerCase();
+      const cName = (c.name || '').toLowerCase();
+      const cId = (c.id || '').toLowerCase();
+      
+      if (facultyType === 'minor') return cCat === 'minor' || cId.includes('minor') || cName.includes('minor');
+      if (facultyType === 'major') return cCat === 'major' || cId.includes('major') || cName.includes('major');
+      if (facultyType === 'mdc') return cCat === 'md' || cId.includes('mdc') || cName.includes('mdc');
+      if (facultyType === 'skills' || facultyType === 'skill' || facultyType === 'sec') return cCat === 'skill' || cId.includes('skill');
+      if (facultyType === 'practical') return cCat === 'core' || cId.includes('practical');
+      if (facultyType === 'vac 1' || facultyType === 'vac i' || facultyType === 'vac1') return cCat === 'vac1' || cId.includes('vac1');
+      if (facultyType === 'vac 2' || facultyType === 'vac ii' || facultyType === 'vac2') return cCat === 'vac2' || cId.includes('vac2');
+      if (facultyType === 'aec') return cCat === 'aecc' || cId.includes('aec');
+      return false;
+    });
+
+    const baseClass = matchingClass || classes.find(c => c.id === 'core_class') || classes[0];
     const paperName = adminProfile?.assignedSubject || baseClass.paperName || 'Geology';
     
     // Check if faculty has a configured assignment for this subject or default assignment
@@ -240,14 +312,19 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       (a.subjectType && adminProfile.assignedSubjectType && a.subjectType === adminProfile.assignedSubjectType)
     ) || adminProfile?.assignments?.[0];
 
-    // Priority: facultyAssignment > systemSchedule > baseClass defaults
-    const defaultStartTime = facultyAssignment?.startTime || systemSchedule?.startTime || baseClass.defaultStartTime || '10:00 AM';
-    const defaultEndTime = facultyAssignment?.endTime || systemSchedule?.endTime || baseClass.defaultEndTime || '10:40 AM';
-    const durationMinutes = facultyAssignment?.duration || systemSchedule?.duration || baseClass.durationMinutes || 40;
-    const room = facultyAssignment?.room || adminProfile?.assignedRoom || systemSchedule?.room || baseClass.room || 'Block C room no 30';
+    // Priority: facultyAssignment > baseClass defaults > systemSchedule
+    const defaultStartTime = facultyAssignment?.startTime || baseClass.defaultStartTime || systemSchedule?.startTime || '10:00 AM';
+    const defaultEndTime = facultyAssignment?.endTime || baseClass.defaultEndTime || systemSchedule?.endTime || '10:40 AM';
+    const durationMinutes = facultyAssignment?.duration || baseClass.durationMinutes || systemSchedule?.duration || 40;
+    const room = facultyAssignment?.room || adminProfile?.assignedRoom || baseClass.room || systemSchedule?.room || 'Block C room no 30';
+
+    const subjectSlug = (adminProfile?.assignedSubject || 'geology').toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const typeSlug = (adminProfile?.assignedSubjectType || 'mdc').toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const classId = `class_${subjectSlug}_${typeSlug}`;
 
     return {
       ...baseClass,
+      id: classId,
       name: adminProfile?.assignedSubjectType ? `${adminProfile.assignedSubjectType} Course` : baseClass.name,
       paperName,
       room,
@@ -321,7 +398,7 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               course: data.course || 'B.Sc. Academic Program',
               major: data.major || '',
               minor: data.minor || '',
-              mdc: data.mdc || '',
+              mdc: data.mdc || 'Geology',
               vac1: data.vac1 || '',
               vac2: data.vac2 || '',
               skills: data.skills || '',
@@ -362,8 +439,8 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       collection(db, 'attendanceSessions'),
       (snapshot) => {
         if (!snapshot.empty) {
-          const list: AttendanceSession[] = snapshot.docs.map((docSnap) => {
-          const parseDateAndTimeToEpoch = (dateStr, timeStr) => {
+          const aliasKeySet = new Set(['active', 'active_session', 'current', 'core_class', 'class_applied_it_minor']);
+          const parseDateAndTimeToEpoch = (dateStr?: string, timeStr?: string) => {
             try {
               if (!dateStr || !timeStr) return Date.now();
               const [year, month, day] = dateStr.split('-').map(Number);
@@ -380,29 +457,41 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               return Date.now();
             }
           };
-            const data = docSnap.data();
-            return {
-              id: docSnap.id,
-              classId: data.classId || 'core_class',
-              className: data.className || 'Core Course - Theory & Practical Lab',
-              date: data.date || '',
-              startTime: data.startTime || '10:00 AM',
-              endTime: data.endTime || '10:40 AM',
-              startEpoch: data.startEpoch || parseDateAndTimeToEpoch(data.date || '', data.startTime || '10:00 AM'),
-              endEpoch: data.endEpoch || parseDateAndTimeToEpoch(data.date || '', data.endTime || '10:40 AM'),
-              token: data.token || '',
-              status: data.status || 'active',
-              totalStudents: data.totalStudents || 0,
-              presentCount: data.presentCount || 0,
-              absentCount: data.absentCount || 0,
-              notMarkedCount: data.notMarkedCount || 0,
-              correctionCount: data.correctionCount || 0,
-              createdBy: data.createdBy || 'Admin',
-              createdAt: data.createdAt || new Date().toISOString(),
-              closedAt: data.closedAt || undefined,
-              autoClosed: data.autoClosed || false,
-            } as AttendanceSession;
-          });
+
+          const list: AttendanceSession[] = snapshot.docs
+            .filter((docSnap) => {
+              const data = docSnap.data();
+              if (aliasKeySet.has(docSnap.id)) return false;
+              if (data.classId && docSnap.id === data.classId) return false;
+              if (data.date && docSnap.id === data.date) return false;
+              return true;
+            })
+            .map((docSnap) => {
+              const data = docSnap.data();
+              return {
+                id: docSnap.id,
+                classId: data.classId || 'core_class',
+                className: data.className || 'Core Course - Theory & Practical Lab',
+                subject: data.subject || data.subjectName || '',
+                subjectType: data.subjectType || data.category || '',
+                date: data.date || '',
+                startTime: data.startTime || '10:00 AM',
+                endTime: data.endTime || '10:40 AM',
+                startEpoch: data.startEpoch || parseDateAndTimeToEpoch(data.date || '', data.startTime || '10:00 AM'),
+                endEpoch: data.endEpoch || parseDateAndTimeToEpoch(data.date || '', data.endTime || '10:40 AM'),
+                token: data.token || '',
+                status: data.status || (data.active ? 'active' : 'closed'),
+                totalStudents: data.totalStudents || 0,
+                presentCount: data.presentCount || 0,
+                absentCount: data.absentCount || 0,
+                notMarkedCount: data.notMarkedCount || 0,
+                correctionCount: data.correctionCount || 0,
+                createdBy: data.createdBy || 'Admin',
+                createdAt: data.createdAt || new Date().toISOString(),
+                closedAt: data.closedAt || undefined,
+                autoClosed: data.autoClosed || false,
+              } as AttendanceSession;
+            });
           setSessions(list);
         }
       },
@@ -422,6 +511,8 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               id: docSnap.id,
               sessionId: data.sessionId || '',
               classId: data.classId || 'core_class',
+              subject: data.subject || data.subjectName || '',
+              subjectType: data.subjectType || '',
               studentId: data.studentId || data.studentUid || '',
               studentName: data.studentName || data.name || '',
               rollNumber: data.rollNumber || '',
@@ -591,6 +682,65 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
     );
 
+    // 8. Listen to Master Timetable Schedule dataset
+    const unsubTimetable = onSnapshot(
+      doc(db, 'timetableSchedule', 'schedule_master'),
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data() as ScheduleMaster;
+          if (data && Array.isArray(data.periods) && data.periods.length > 0) {
+            setScheduleMaster(data);
+            localStorage.setItem('amc_schedule_master', JSON.stringify(data));
+
+            // Sync classes array directly from this master dataset
+            setClasses(prev => {
+              const updated = prev.map(c => {
+                const cat = (c.category || '').toLowerCase();
+                let matchedPeriod: TimetablePeriod | undefined;
+                if (cat === 'minor' || c.id === 'minor_class') {
+                  matchedPeriod = data.periods.find(p => p.subjectType === 'minor' || p.periodId === 'p2');
+                } else if (cat === 'major' || c.id === 'major_class') {
+                  matchedPeriod = data.periods.find(p => p.subjectType === 'major' || p.periodId === 'p3');
+                } else if (cat === 'core' || c.id === 'practical_class') {
+                  matchedPeriod = data.periods.find(p => p.subjectType === 'lab' || p.periodId === 'p4_p5');
+                } else if (cat === 'vac1' || c.id === 'vac1_class') {
+                  matchedPeriod = data.periods.find(p => p.subjectType === 'vac' || p.periodId === 'p8');
+                } else if (cat === 'vac2' || c.id === 'vac2_class') {
+                  matchedPeriod = data.periods.find(p => p.subjectType === 'vac' || p.periodId === 'p8');
+                } else if (cat === 'aecc' || c.id === 'aec_class') {
+                  matchedPeriod = data.periods.find(p => p.subjectType === 'aec' || p.periodId === 'p9');
+                } else if (cat === 'md' || c.id === 'mdc_class') {
+                  matchedPeriod = data.periods.find(p => p.subjectType === 'mdc' || p.periodId === 'p1');
+                } else if (cat === 'skill' || c.id === 'skill_class') {
+                  matchedPeriod = data.periods.find(p => p.subjectType === 'mdc' || p.periodId === 'p1');
+                }
+
+                if (matchedPeriod) {
+                  const defaultStartTime = format24to12(matchedPeriod.startTime);
+                  const defaultEndTime = format24to12(matchedPeriod.endTime);
+                  return {
+                    ...c,
+                    academicYear: data.academicYear || c.academicYear,
+                    slotStart: matchedPeriod.startTime,
+                    slotEnd: matchedPeriod.endTime,
+                    defaultStartTime,
+                    defaultEndTime,
+                    room: matchedPeriod.defaultRoom || c.room,
+                  };
+                }
+                return c;
+              });
+              localStorage.setItem('amc_classes', JSON.stringify(updated));
+              return updated;
+            });
+          }
+        }
+      },
+      (error) => {
+        console.warn('Timetable schedule listener notice:', error);
+      }
+    );
+
     return () => {
       unsubStudents();
       unsubSessions();
@@ -600,10 +750,10 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       unsubNotifs();
       unsubCR();
       unsubSchedule();
+      unsubTimetable();
     };
   }, []);
 
-  
 const parseTimeToTodayEpoch = (timeStr: string) => {
   if (!timeStr) return Date.now();
   const match = timeStr.trim().match(/^(\d+):(\d+)\s*(AM|PM)$/i);
@@ -628,17 +778,52 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
     return `${year}-${month}-${day}`;
   }, []);
 
-  // Find active or today's session
+  // Find active or today's session scoped strictly to the current subject
   const activeSession = useMemo(() => {
-    const classSessions = sessions.filter(s => s.classId === currentClass.id);
-    return classSessions.find(s => s.status === 'active') || classSessions.find(s => s.date === todayStr) || (classSessions.length > 0 ? classSessions[0] : null);
-  }, [sessions, todayStr, currentClass.id]);
+    const targetSubject = (adminProfile?.assignedSubject || '').trim().toLowerCase();
+    const targetType = (adminProfile?.assignedSubjectType || '').trim().toLowerCase();
 
-  // Filter today's attendance records
+    // Filter sessions belonging to this subject
+    const subjectSessions = sessions.filter(s => {
+      if (!targetSubject || (adminProfile?.role === 'admin' && (targetSubject === 'all' || targetSubject === 'all subjects'))) {
+        return true;
+      }
+
+      // 1. Match by subject field
+      if (s.subject && s.subject.trim().toLowerCase() === targetSubject) {
+        if (targetType && s.subjectType && targetType !== 'all') {
+          return s.subjectType.trim().toLowerCase() === targetType;
+        }
+        return true;
+      }
+
+      // 2. Match by classId
+      if (s.classId === currentClass.id) {
+        return true;
+      }
+
+      // 3. Match by className containing subject name
+      if (s.className && s.className.toLowerCase().includes(targetSubject)) {
+        return true;
+      }
+
+      return false;
+    });
+
+    return (
+      subjectSessions.find(s => s.status === 'active' && s.date === todayStr) ||
+      subjectSessions.find(s => s.status === 'active') ||
+      subjectSessions.find(s => s.date === todayStr) ||
+      (subjectSessions.length > 0 ? subjectSessions[0] : null)
+    );
+  }, [sessions, todayStr, currentClass.id, adminProfile?.assignedSubject, adminProfile?.assignedSubjectType, adminProfile?.role]);
+
+  // Filter today's attendance records strictly for this active session AND enrolled students for this subject
   const todayAttendance = useMemo(() => {
     if (!activeSession) return [];
-    return allAttendance.filter(a => a.sessionId === activeSession.id);
-  }, [allAttendance, activeSession]);
+    const enrolledIds = new Set(students.map(s => s.id));
+    return allAttendance.filter(a => a.sessionId === activeSession.id && (enrolledIds.size === 0 || enrolledIds.has(a.studentId)));
+  }, [allAttendance, activeSession, students]);
 
   // Format countdown string
   const sessionCountdown = useMemo(() => {
@@ -711,8 +896,7 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
         correctionCount: correction,
         updatedAt: new Date().toISOString(),
       };
-      await updateDoc(doc(db, 'attendanceSessions', sessionId), updates);
-      await updateDoc(doc(db, 'sessions', sessionId), updates).catch(() => {});
+      await updateDoc(doc(db, 'attendanceSessions', sessionId), updates).catch(() => {});
     } catch {
       // ignore
     }
@@ -752,6 +936,8 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
           id: recordId,
           sessionId: activeSession.id,
           classId: activeSession.classId,
+          subject: activeSession.subject || adminProfile.assignedSubject || 'Geology',
+          subjectType: activeSession.subjectType || adminProfile.assignedSubjectType || 'MDC',
           studentId,
           studentName,
           rollNumber: student?.rollNumber,
@@ -775,6 +961,8 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
         id: recordId,
         sessionId: activeSession.id,
         classId: activeSession.classId,
+        subject: activeSession.subject || adminProfile.assignedSubject || 'Geology',
+        subjectType: activeSession.subjectType || adminProfile.assignedSubjectType || 'MDC',
         studentId,
         studentUid: studentId,
         studentName,
@@ -830,6 +1018,8 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
             id: recId,
             sessionId: activeSession.id,
             classId: activeSession.classId,
+            subject: activeSession.subject || adminProfile.assignedSubject || 'Geology',
+            subjectType: activeSession.subjectType || adminProfile.assignedSubjectType || 'MDC',
             studentId: stId,
             studentName: student ? student.fullName : stId,
             rollNumber: student?.rollNumber,
@@ -859,6 +1049,8 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
           id: recId,
           sessionId: activeSession.id,
           classId: activeSession.classId,
+          subject: activeSession.subject || adminProfile.assignedSubject || 'Geology',
+          subjectType: activeSession.subjectType || adminProfile.assignedSubjectType || 'MDC',
           studentId: stId,
           studentUid: stId,
           studentName: student ? student.fullName : stId,
@@ -885,45 +1077,215 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
     });
   }, [activeSession, students, adminProfile, updateSessionCounters, addActivityLog]);
 
-  // Update class configuration (e.g. from Settings)
-  const updateClassConfig = useCallback((classId: string, updates: Partial<ClassConfig>) => {
-    setClasses(prev => prev.map(c => c.id === classId ? { ...c, ...updates } : c));
+  // Helper to synchronize active session to the single canonical 'attendanceSessions' document
+  const syncActiveSessionToFirestore = useCallback(async (sessionObj: AttendanceSession) => {
+    try {
+      const payload = {
+        ...sessionObj,
+        sessionId: sessionObj.id,
+        validUntil: sessionObj.endEpoch,
+        active: sessionObj.status === 'active',
+        updatedAt: new Date().toISOString(),
+      };
+      
+      // Save exactly ONE document into 'attendanceSessions' using sessionObj.id
+      await setDoc(doc(db, 'attendanceSessions', sessionObj.id), payload, { merge: true });
+
+      // Clean up legacy alias documents and redundant 'sessions' collection docs if present
+      const legacyAliases = ['active', 'active_session', 'current', 'core_class', 'class_applied_it_minor', sessionObj.classId, sessionObj.date].filter(Boolean);
+      legacyAliases.forEach(aliasId => {
+        if (aliasId !== sessionObj.id) {
+          deleteDoc(doc(db, 'attendanceSessions', aliasId as string)).catch(() => {});
+          deleteDoc(doc(db, 'sessions', aliasId as string)).catch(() => {});
+        }
+      });
+      deleteDoc(doc(db, 'sessions', sessionObj.id)).catch(() => {});
+    } catch (e) {
+      console.warn('Firestore session sync notice:', e);
+    }
   }, []);
 
-  // Start session manually (or create fresh session if none exists)
-  const startSessionManually = useCallback(async () => {
+  // Update class configuration (e.g. from Settings or Timetable Editor)
+  const updateClassConfig = useCallback((classId: string, updates: Partial<ClassConfig>) => {
+    setClasses(prev => {
+      const updated = prev.map(c => c.id === classId ? { ...c, ...updates } : c);
+      try {
+        localStorage.setItem('amc_classes', JSON.stringify(updated));
+        setDoc(doc(db, 'settings', 'classes_schedule'), { classes: updated, updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
+        setDoc(doc(db, 'classes', classId), { id: classId, ...updates, updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
+      } catch (e) {}
+      return updated;
+    });
+  }, []);
+
+  const resetClassesToDefaults = useCallback(() => {
+    setClasses(INITIAL_CLASSES);
+    try {
+      localStorage.setItem('amc_classes', JSON.stringify(INITIAL_CLASSES));
+      setDoc(doc(db, 'settings', 'classes_schedule'), { classes: INITIAL_CLASSES, updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
+    } catch (e) {}
+  }, []);
+
+  const [sessionValidationError, setSessionValidationError] = useState<string | null>(null);
+
+  const clearSessionValidationError = useCallback(() => {
+    setSessionValidationError(null);
+  }, []);
+
+  // Mark or clear attendance for any specific calendar date (supporting previous months)
+  const markStudentDateAttendance = useCallback(async (
+    studentId: string,
+    dateStr: string,
+    status: AttendanceStatus,
+    notes?: string
+  ) => {
+    const student = students.find(s => s.id === studentId);
+    const studentName = student ? student.fullName : studentId;
+    const subject = adminProfile?.assignedSubject || currentClass.paperName || 'Geology';
+    const subjectType = adminProfile?.assignedSubjectType || 'MDC';
+    const recordDocId = `cal_${studentId}_${dateStr.replace(/-/g, '_')}`;
+
+    let updatedList: AttendanceRecord[] = [];
+    let recordToSave: AttendanceRecord;
+
+    setAllAttendance(prev => {
+      const existingIdx = prev.findIndex(r => r.studentId === studentId && r.date === dateStr);
+      if (status === 'not_marked') {
+        if (existingIdx >= 0) {
+          updatedList = prev.filter((_, i) => i !== existingIdx);
+        } else {
+          updatedList = prev;
+        }
+      } else if (existingIdx >= 0) {
+        updatedList = prev.map((r, i) => {
+          if (i === existingIdx) {
+            recordToSave = {
+              ...r,
+              status,
+              method: 'manual_admin',
+              notes: notes || r.notes || `Manual calendar entry for ${dateStr}`,
+              markedAt: status === 'present' ? new Date().toISOString() : r.markedAt,
+              markedBy: adminProfile.name || 'Teacher',
+              updatedAt: new Date().toISOString(),
+            };
+            return recordToSave;
+          }
+          return r;
+        });
+      } else {
+        recordToSave = {
+          id: recordDocId,
+          sessionId: `manual_session_${dateStr.replace(/-/g, '_')}`,
+          classId: currentClass.id || 'core_class',
+          subject,
+          subjectType,
+          studentId,
+          studentName,
+          rollNumber: student?.rollNumber,
+          date: dateStr,
+          status,
+          method: 'manual_admin',
+          notes: notes || `Manual calendar entry for ${dateStr}`,
+          markedAt: status === 'present' ? new Date().toISOString() : undefined,
+          markedBy: adminProfile.name || 'Teacher',
+          updatedAt: new Date().toISOString(),
+        };
+        updatedList = [recordToSave, ...prev];
+      }
+      return updatedList;
+    });
+
+    try {
+      if (status === 'not_marked') {
+        await deleteDoc(doc(db, 'attendance', recordDocId)).catch(() => {});
+        if (activeSession) {
+          await deleteDoc(doc(db, 'attendance', `${activeSession.id}_${studentId}`)).catch(() => {});
+        }
+      } else {
+        const sanitizedRecord = {
+          id: recordDocId,
+          sessionId: `manual_session_${dateStr.replace(/-/g, '_')}`,
+          classId: currentClass.id || 'core_class',
+          subject,
+          subjectType,
+          studentId,
+          studentUid: studentId,
+          studentName,
+          rollNumber: student?.rollNumber || '',
+          date: dateStr,
+          status,
+          method: 'manual_admin',
+          notes: notes || `Manual calendar entry for ${dateStr}`,
+          markedAt: status === 'present' ? new Date().toISOString() : '',
+          markedBy: adminProfile.name || 'Teacher',
+          updatedAt: new Date().toISOString(),
+        };
+        await setDoc(doc(db, 'attendance', recordDocId), sanitizedRecord, { merge: true });
+      }
+    } catch (e) {
+      console.warn('Manual calendar date attendance save notice:', e);
+    }
+
+    addActivityLog({
+      eventType: 'attendance_modified',
+      targetType: 'student',
+      targetId: studentId,
+      targetName: studentName,
+      details: `Manual Calendar Entry: Marked ${studentName} as ${status.toUpperCase()} for ${dateStr} by ${adminProfile.name}.`,
+    });
+  }, [students, adminProfile, currentClass, activeSession, addActivityLog]);
+
+  // Start session manually with strict time window enforcement
+  const startSessionManually = useCallback(async (): Promise<{ success: boolean; message?: string }> => {
+    setSessionValidationError(null);
     const defaultStart = currentClass.defaultStartTime || '10:00 AM';
     const defaultEnd = currentClass.defaultEndTime || '10:40 AM';
     
-    // Use configured time bounds for current day
+    // Parse time bounds for current day
     const configuredStartEpoch = parseTimeToTodayEpoch(defaultStart);
     const configuredEndEpoch = parseTimeToTodayEpoch(defaultEnd);
-    
-    let durationMs = configuredEndEpoch - configuredStartEpoch;
-    if (durationMs <= 0) durationMs = 40 * 60 * 1000;
-
     const now = Date.now();
-    let startEpoch = configuredStartEpoch;
-    let endEpoch = configuredEndEpoch;
 
-    // If configured end time is in the past or right now when teacher launches session,
-    // ensure endEpoch is extended into the future so session remains ACTIVE for students!
-    if (endEpoch <= now) {
-      startEpoch = Math.min(configuredStartEpoch, now);
-      endEpoch = now + durationMs;
+    // 1. Strict Validation: Cannot start before session time starts
+    if (now < configuredStartEpoch) {
+      const msg = `Session cannot start before scheduled class time (${defaultStart}). Scheduled class window is ${defaultStart} – ${defaultEnd}.`;
+      setSessionValidationError(msg);
+      addActivityLog({
+        eventType: 'admin_action',
+        targetType: 'session',
+        details: `Blocked attempt to start session before start time (${defaultStart}).`,
+      });
+      return { success: false, message: msg };
     }
 
+    // 2. Strict Validation: Cannot start after session time has ended
+    if (now > configuredEndEpoch) {
+      const msg = `Session cannot start after scheduled class time has ended (${defaultEnd}). Scheduled class window was ${defaultStart} – ${defaultEnd}.`;
+      setSessionValidationError(msg);
+      addActivityLog({
+        eventType: 'admin_action',
+        targetType: 'session',
+        details: `Blocked attempt to start session after end time (${defaultEnd}).`,
+      });
+      return { success: false, message: msg };
+    }
+
+    const startEpoch = configuredStartEpoch;
+    const endEpoch = configuredEndEpoch;
     const sessionDate = todayStr;
     const token = `AMC-SEC-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
     let sessionObj: AttendanceSession;
 
-    if (activeSession && activeSession.date === sessionDate && activeSession.classId === currentClass.id) {
+    if (activeSession && activeSession.date === sessionDate && (activeSession.classId === currentClass.id || activeSession.subject === adminProfile.assignedSubject)) {
       sessionObj = {
         ...activeSession,
         status: 'active',
-        startTime: currentClass.defaultStartTime || '10:00 AM',
-        endTime: currentClass.defaultEndTime || '10:40 AM',
+        date: sessionDate,
+        subject: adminProfile.assignedSubject || activeSession.subject || 'Geology',
+        subjectType: adminProfile.assignedSubjectType || activeSession.subjectType || 'MDC',
+        startTime: defaultStart,
+        endTime: defaultEnd,
         startEpoch,
         endEpoch,
         token: activeSession.token || token,
@@ -932,14 +1294,18 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
         prev.map(s => (s.id === activeSession.id ? sessionObj : s))
       );
     } else {
-      const newSessionId = `session_${sessionDate.replace(/-/g, '_')}_${Date.now().toString(36)}`;
+      const subjectSlug = (adminProfile?.assignedSubject || 'geology').toLowerCase().replace(/[^a-z0-9]/g, '_');
+      const typeSlug = (adminProfile?.assignedSubjectType || 'mdc').toLowerCase().replace(/[^a-z0-9]/g, '_');
+      const newSessionId = `session_${subjectSlug}_${typeSlug}_${sessionDate.replace(/-/g, '_')}_${Date.now().toString(36)}`;
       sessionObj = {
         id: newSessionId,
         classId: currentClass.id,
         className: `${currentClass.name} - ${currentClass.paperName}`,
+        subject: adminProfile.assignedSubject || 'Geology',
+        subjectType: adminProfile.assignedSubjectType || 'MDC',
         date: sessionDate,
-        startTime: currentClass.defaultStartTime || '10:00 AM',
-        endTime: currentClass.defaultEndTime || '10:40 AM',
+        startTime: defaultStart,
+        endTime: defaultEnd,
         startEpoch,
         endEpoch,
         token,
@@ -957,6 +1323,8 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
         id: `${newSessionId}_${st.id}`,
         sessionId: newSessionId,
         classId: currentClass.id,
+        subject: adminProfile.assignedSubject || 'Geology',
+        subjectType: adminProfile.assignedSubjectType || 'MDC',
         studentId: st.id,
         studentName: st.fullName,
         rollNumber: st.rollNumber,
@@ -970,12 +1338,7 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
       setAllAttendance(prev => [...initialRecords, ...prev]);
     }
 
-    try {
-      await setDoc(doc(db, 'attendanceSessions', sessionObj.id), sessionObj, { merge: true });
-      await setDoc(doc(db, 'sessions', sessionObj.id), sessionObj, { merge: true }).catch(() => {});
-    } catch (e) {
-      console.warn('Session start Firestore write notice:', e);
-    }
+    await syncActiveSessionToFirestore(sessionObj);
 
     addActivityLog({
       eventType: 'qr_session_started',
@@ -984,7 +1347,9 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
       targetName: `${currentClass.name} - ${currentClass.paperName}`,
       details: `Live QR attendance session started by ${adminProfile.name}. Token: ${sessionObj.token}`,
     });
-  }, [activeSession, currentClass, todayStr, students, adminProfile, addActivityLog]);
+
+    return { success: true };
+  }, [activeSession, currentClass, todayStr, students, adminProfile, syncActiveSessionToFirestore, addActivityLog]);
 
   // Close session manually and auto-transition unmarked to absent
   const closeSessionManually = useCallback(async () => {
@@ -1020,12 +1385,7 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
 
     updateSessionCounters(activeSession.id, updatedList);
 
-    try {
-      await setDoc(doc(db, 'attendanceSessions', activeSession.id), closedSession, { merge: true });
-      await setDoc(doc(db, 'sessions', activeSession.id), closedSession, { merge: true }).catch(() => {});
-    } catch (e) {
-      console.warn('Session close Firestore write notice:', e);
-    }
+    await syncActiveSessionToFirestore(closedSession);
 
     addActivityLog({
       eventType: 'qr_session_closed',
@@ -1034,7 +1394,7 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
       targetName: activeSession.className,
       details: `Attendance session closed. Unmarked students transitioned to Absent.`,
     });
-  }, [activeSession, updateSessionCounters, addActivityLog]);
+  }, [activeSession, updateSessionCounters, syncActiveSessionToFirestore, addActivityLog]);
 
   // Extend session
   const extendSession = useCallback(async (extraMinutes: number) => {
@@ -1051,18 +1411,7 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
       prev.map(s => (s.id === activeSession.id ? extended : s))
     );
 
-    try {
-      await updateDoc(doc(db, 'attendanceSessions', activeSession.id), {
-        endEpoch: newEndEpoch,
-        status: 'active',
-      });
-      await updateDoc(doc(db, 'sessions', activeSession.id), {
-        endEpoch: newEndEpoch,
-        status: 'active',
-      }).catch(() => {});
-    } catch (e) {
-      console.warn('Extend session write notice:', e);
-    }
+    await syncActiveSessionToFirestore(extended);
 
     addActivityLog({
       eventType: 'admin_action',
@@ -1071,7 +1420,7 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
       targetName: activeSession.className,
       details: `Session duration extended by +${extraMinutes} minutes by ${adminProfile.name}.`,
     });
-  }, [activeSession, adminProfile, addActivityLog]);
+  }, [activeSession, adminProfile, syncActiveSessionToFirestore, addActivityLog]);
 
   const updateSessionTime = useCallback(async (startTimeStr: string, endTimeStr: string) => {
     if (!activeSession) return;
@@ -1081,7 +1430,7 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
     
     // If end time epoch is <= start time epoch, add 40 minutes default
     if (newEndEpoch <= newStartEpoch) {
-      newEndEpoch = newStartEpoch + 40 * 60 * 1000;
+      newEndEpoch = newStartEpoch + (currentClass.durationMinutes || 40) * 60 * 1000;
     }
 
     const now = Date.now();
@@ -1090,6 +1439,7 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
 
     const updated: AttendanceSession = {
       ...activeSession,
+      date: todayStr,
       startTime: startTimeStr,
       endTime: endTimeStr,
       startEpoch: newStartEpoch,
@@ -1101,20 +1451,7 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
       prev.map(s => (s.id === activeSession.id ? updated : s))
     );
 
-    try {
-      const docUpdates = {
-        startTime: startTimeStr,
-        endTime: endTimeStr,
-        date: activeSession.date,
-        startEpoch: newStartEpoch,
-        endEpoch: newEndEpoch,
-        status: updatedStatus,
-      };
-      await updateDoc(doc(db, 'attendanceSessions', activeSession.id), docUpdates);
-      await updateDoc(doc(db, 'sessions', activeSession.id), docUpdates).catch(() => {});
-    } catch (e) {
-      console.warn('Update session time write notice:', e);
-    }
+    await syncActiveSessionToFirestore(updated);
 
     addActivityLog({
       eventType: 'admin_action',
@@ -1123,7 +1460,7 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
       targetName: activeSession.className,
       details: `Session time updated to ${startTimeStr} - ${endTimeStr} by ${adminProfile.name}.`,
     });
-  }, [activeSession, adminProfile, addActivityLog]);
+  }, [activeSession, currentClass, todayStr, adminProfile, syncActiveSessionToFirestore, addActivityLog]);
 
   const updateSystemSchedule = useCallback(async (newSched: { startTime: string; endTime: string; duration: number; room: string }) => {
     setSystemSchedule(newSched);
@@ -1146,22 +1483,13 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
     if (!activeSession) return;
     const newToken = `AMC-SEC-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
+    const updatedSession = { ...activeSession, token: newToken };
+
     setSessions(prev =>
-      prev.map(s => (s.id === activeSession.id ? { ...s, token: newToken } : s))
+      prev.map(s => (s.id === activeSession.id ? updatedSession : s))
     );
 
-    try {
-      await updateDoc(doc(db, 'attendanceSessions', activeSession.id), {
-        token: newToken,
-        updatedAt: new Date().toISOString(),
-      });
-      await updateDoc(doc(db, 'sessions', activeSession.id), {
-        token: newToken,
-        updatedAt: new Date().toISOString(),
-      }).catch(() => {});
-    } catch (e) {
-      console.warn('Regenerate token write notice:', e);
-    }
+    await syncActiveSessionToFirestore(updatedSession);
 
     addActivityLog({
       eventType: 'admin_action',
@@ -1170,7 +1498,7 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
       targetName: activeSession.className,
       details: `Regenerated dynamic secure QR token (${newToken}) for session integrity.`,
     });
-  }, [activeSession, addActivityLog]);
+  }, [activeSession, syncActiveSessionToFirestore, addActivityLog]);
 
   // Add student
   const addStudent = useCallback(async (studentData: Omit<Student, 'id' | 'createdAt' | 'updatedAt'>) => {
@@ -1178,6 +1506,7 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
     const now = new Date().toISOString();
     const newStudent: Student = {
       ...studentData,
+      mdc: studentData.mdc || 'Geology',
       id,
       studentId: id,
       createdAt: now,
@@ -1466,6 +1795,7 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
       const id = `stu_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 6)}`;
       return {
         ...st,
+        mdc: st.mdc || 'Geology',
         id,
         createdAt: now,
         updatedAt: now,
@@ -1504,6 +1834,62 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
       link: 'students',
     };
     setNotifications(prev => [newNotif, ...prev]);
+  }, [addActivityLog]);
+
+  // Bulk migrate all existing students and users to MDC: Geology
+  const migrateAllStudentsMdcToGeology = useCallback(async () => {
+    let count = 0;
+    try {
+      setRawStudents(prev =>
+        prev.map(s => ({
+          ...s,
+          mdc: 'Geology',
+          updatedAt: new Date().toISOString(),
+        }))
+      );
+
+      const studentsSnap = await getDocs(collection(db, 'students'));
+      if (!studentsSnap.empty) {
+        const batch = writeBatch(db);
+        studentsSnap.forEach(docSnap => {
+          batch.set(
+            doc(db, 'students', docSnap.id),
+            { mdc: 'Geology', updatedAt: new Date().toISOString() },
+            { merge: true }
+          );
+          count++;
+        });
+        await batch.commit();
+      }
+
+      try {
+        const usersSnap = await getDocs(collection(db, 'users'));
+        if (!usersSnap.empty) {
+          const userBatch = writeBatch(db);
+          usersSnap.forEach(docSnap => {
+            userBatch.set(
+              doc(db, 'users', docSnap.id),
+              { mdc: 'Geology', updatedAt: new Date().toISOString() },
+              { merge: true }
+            );
+          });
+          await userBatch.commit();
+        }
+      } catch (uErr) {
+        // Users collection update notice
+      }
+
+      addActivityLog({
+        eventType: 'admin_action',
+        targetType: 'student',
+        targetId: 'bulk_mdc_update',
+        targetName: 'All Students & Users',
+        details: `Bulk updated all existing student profiles to MDC: Geology.`,
+      });
+    } catch (err) {
+      console.warn('MDC bulk migration notice:', err);
+    }
+    return count;
   }, [addActivityLog]);
 
   // Toggle account status
@@ -1838,9 +2224,33 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
     });
   }, [correctionRequests, adminProfile, addActivityLog]);
 
-  // Student stats calculator
+  // Student stats calculator (scoped to current subject context if applicable)
   const getStudentStats = useCallback((studentId: string): StudentAttendanceStats => {
-    const studentRecords = allAttendance.filter(a => a.studentId === studentId);
+    const targetSubject = (adminProfile?.assignedSubject || '').trim().toLowerCase();
+    const isGlobalAdmin = adminProfile?.role === 'admin' && (!targetSubject || targetSubject === 'all' || targetSubject === 'all subjects');
+
+    const studentRecords = allAttendance.filter(a => {
+      if (a.studentId !== studentId) return false;
+      if (isGlobalAdmin) return true;
+
+      // Match subject attribute on record
+      if (a.subject && a.subject.trim().toLowerCase() === targetSubject) {
+        return true;
+      }
+      // Match classId
+      if (a.classId === currentClass.id) {
+        return true;
+      }
+      // Match session subject
+      const sess = sessions.find(s => s.id === a.sessionId);
+      if (sess) {
+        if (sess.subject && sess.subject.trim().toLowerCase() === targetSubject) return true;
+        if (sess.classId === currentClass.id) return true;
+        if (sess.className && sess.className.toLowerCase().includes(targetSubject)) return true;
+      }
+      return !targetSubject;
+    });
+
     const totalClasses = Math.max(1, studentRecords.length);
     const present = studentRecords.filter(a => a.status === 'present').length;
     const absent = studentRecords.filter(a => a.status === 'absent').length;
@@ -1856,7 +2266,7 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
       percentage,
       isDefaulter,
     };
-  }, [allAttendance]);
+  }, [allAttendance, adminProfile, currentClass.id, sessions]);
 
   // Simulate real-time student scan
   const simulateStudentScan = useCallback((studentId?: string) => {
@@ -1928,10 +2338,14 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
         crDelegations,
         classes,
         currentClass,
+        scheduleMaster,
         currentTime,
         sessionCountdown,
         isSessionActive,
+        sessionValidationError,
+        clearSessionValidationError,
         updateClassConfig,
+        resetClassesToDefaults,
         startSessionManually,
         closeSessionManually,
         extendSession,
@@ -1939,6 +2353,7 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
         updateSystemSchedule,
         regenerateToken,
         markAttendance,
+        markStudentDateAttendance,
         bulkMarkStatus,
         addStudent,
         updateStudent,
@@ -1954,6 +2369,7 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
         approveCorrectionRequest,
         rejectCorrectionRequest,
         getStudentMonthlyCorrectionCount,
+        migrateAllStudentsMdcToGeology,
         getStudentStats,
         simulateStudentScan,
         markNotificationRead,

@@ -234,6 +234,14 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
               </div>
 
               <div className="p-3 rounded-xl bg-slate-950/40 border border-slate-800/80 flex items-center gap-3">
+                <Award className="w-4 h-4 text-emerald-400" />
+                <div>
+                  <span className="text-[10px] text-slate-500 uppercase block">MDC (Multi-Disciplinary)</span>
+                  <span className="text-emerald-300 font-semibold">{student.mdc || 'Geology'}</span>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-950/40 border border-slate-800/80 flex items-center gap-3">
                 <Award className="w-4 h-4 text-slate-500" />
                 <div>
                   <span className="text-[10px] text-slate-500 uppercase block">Academic Batch</span>

@@ -98,6 +98,8 @@ export interface AttendanceSession {
   id: string; // "session_2026_08_19"
   classId: string; // "core_class"
   className: string; // "Core Subject - Theory & Lab"
+  subject?: string;
+  subjectType?: string;
   date: string; // "2026-08-19"
   startTime: string; // "10:00 AM"
   endTime: string; // "10:40 AM"
@@ -120,6 +122,8 @@ export interface AttendanceRecord {
   id: string; // `${sessionId}_${studentId}`
   sessionId: string;
   classId: string;
+  subject?: string;
+  subjectType?: string;
   studentId: string;
   studentName: string;
   rollNumber?: string;
@@ -214,6 +218,7 @@ export interface ClassConfig {
   paperName: string; // "Core Theory & Laboratory"
   room: string; // "Lecture Hall 204 / North Wing"
   academicYear: string; // "2025-2026"
+  days?: string; // e.g. "Mon-Wed", "Thu-Sat", "Mon-Sat"
   slotStart: string; // "10:00"
   slotEnd: string; // "10:40"
   defaultStartTime: string; // "10:00 AM"
@@ -252,3 +257,57 @@ export interface CRDelegation {
   createdAt?: string;
   updatedAt?: string;
 }
+
+export interface TimetablePeriod {
+  periodId: string;
+  periodNumber: number;
+  name: string;
+  startTime: string; // "10:00"
+  endTime: string;   // "10:40"
+  timeSlot?: string; // "10:00 AM - 10:40 AM"
+  subjectType: string; // "mdc" | "minor" | "major" | "lab" | "vac" | "aec"
+  defaultRoom: string;
+  daysRule: Record<string, string>;
+}
+
+export interface SectionMatrixItem {
+  section: string;
+  capacity?: number;
+  majorRoom: string;
+  aecDays: string;
+  aecRoom: string;
+  vacMonWed: string;
+  vacRoom: string;
+  vacThuSat: string;
+}
+
+export interface VacSubjectItem {
+  code: string;
+  label: string;
+  description: string;
+}
+
+export interface LabBatchItem {
+  id: string;
+  name: string;
+  section: string;
+  rollRange: string;
+  instructor: string;
+  labRoom: string;
+  monWedSubject: string;
+  thuSatSubject: string;
+}
+
+export interface ScheduleMaster {
+  academicYear: string;
+  department: string;
+  semester: string;
+  scheduleVersion: string;
+  updatedAt: string;
+  updatedBy: string;
+  periods: TimetablePeriod[];
+  sectionMatrix: Record<string, SectionMatrixItem>;
+  vacSubjects: VacSubjectItem[];
+  labBatches: LabBatchItem[];
+}
+

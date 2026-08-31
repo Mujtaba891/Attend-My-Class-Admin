@@ -14,6 +14,7 @@ import {
   CheckCircle2,
   XCircle,
   AlertCircle,
+  AlertTriangle,
   Maximize2,
 } from 'lucide-react';
 import { useAttendance } from '../../context/AttendanceContext';
@@ -32,6 +33,8 @@ export const QRSessionView: React.FC<QRSessionViewProps> = ({ onOpenClassroomDis
     todayAttendance,
     isSessionActive,
     sessionCountdown,
+    sessionValidationError,
+    clearSessionValidationError,
     startSessionManually,
     closeSessionManually,
     extendSession,
@@ -92,31 +95,52 @@ export const QRSessionView: React.FC<QRSessionViewProps> = ({ onOpenClassroomDis
       return `${hours}:${minStr} ${ampm}`;
     };
 
+    startSessionManually();
     if (updateSessionTime) {
       updateSessionTime(formatTime(now), formatTime(later));
-    }
-    if (!isSessionActive) {
-      startSessionManually();
     }
   };
 
   if (!activeSession) {
     return (
-      <div className="p-6 sm:p-12 text-center bg-slate-900 border border-slate-800 rounded-2xl max-w-lg mx-auto my-8 shadow-xl">
-        <div className="w-16 h-14 sm:h-16 rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center mx-auto mb-4">
+      <div className="p-6 sm:p-12 text-center bg-slate-900 border border-slate-800 rounded-2xl max-w-lg mx-auto my-8 shadow-xl space-y-4">
+        <div className="w-16 h-14 sm:h-16 rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center mx-auto mb-2">
           <QrCode className="w-8 h-8" />
         </div>
         <h3 className="text-xl font-bold text-slate-100 font-heading">Start Today's QR Session</h3>
-        <p className="text-sm text-slate-400 mt-2 mb-4 sm:mb-6">
+        <p className="text-sm text-slate-400">
           Generate an active dynamic QR code session for {adminProfile.assignedSubject || 'Core Subject'} {adminProfile.assignedSubjectType && adminProfile.assignedSubjectType !== 'All' ? `(${adminProfile.assignedSubjectType})` : ''} ({adminProfile.assignedClass || 'Semester IV'}) so students can scan and mark attendance.
         </p>
-        <button
-          onClick={startSessionManually}
-          className="inline-flex items-center gap-2 px-4 py-2 sm:px-4 sm:px-6 sm:py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-lg shadow-emerald-950/50 transition-all cursor-pointer"
-        >
-          <Play className="w-4 h-4" />
-          <span>Launch QR Attendance Session</span>
-        </button>
+
+        {sessionValidationError && (
+          <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs text-left space-y-1">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 font-bold">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>Session Time Restricted</span>
+              </div>
+              <button
+                onClick={clearSessionValidationError}
+                className="text-amber-400/80 hover:text-amber-200 text-[11px] underline cursor-pointer"
+              >
+                Dismiss
+              </button>
+            </div>
+            <p className="text-[11px] text-amber-200/90 leading-relaxed pl-5">
+              {sessionValidationError}
+            </p>
+          </div>
+        )}
+
+        <div className="pt-2">
+          <button
+            onClick={startSessionManually}
+            className="inline-flex items-center gap-2 px-4 py-2 sm:px-4 sm:px-6 sm:py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-lg shadow-emerald-950/50 transition-all cursor-pointer"
+          >
+            <Play className="w-4 h-4" />
+            <span>Launch QR Attendance Session</span>
+          </button>
+        </div>
       </div>
     );
   }
@@ -124,11 +148,13 @@ export const QRSessionView: React.FC<QRSessionViewProps> = ({ onOpenClassroomDis
   // QR Payload
   const qrPayload = JSON.stringify({
     app: 'AttendMyClass',
-    classId: activeSession.classId,
+    classId: activeSession.classId || 'core_class',
     sessionId: activeSession.id,
     date: activeSession.date,
     token: activeSession.token,
     validUntil: activeSession.endEpoch,
+    subject: activeSession.subject,
+    subjectType: activeSession.subjectType,
   });
 
   const presentList = todayAttendance.filter(a => a.status === 'present');

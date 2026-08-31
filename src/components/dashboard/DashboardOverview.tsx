@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   Users,
   CheckCircle2,
@@ -38,6 +38,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     correctionRequests,
     isSessionActive,
     sessionCountdown,
+    sessionValidationError,
+    clearSessionValidationError,
     startSessionManually,
     closeSessionManually,
     simulateStudentScan,
@@ -46,21 +48,27 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
   const { currentRole, adminProfile } = useAuth();
 
-  // Metrics
+  // Scoped student IDs for the active subject
+  const enrolledStudentIds = useMemo(() => new Set(students.map(s => s.id)), [students]);
+  const subjectRecords = useMemo(() => todayAttendance.filter(a => enrolledStudentIds.has(a.studentId)), [todayAttendance, enrolledStudentIds]);
+
+  // Metrics (strictly computed from enrolled students of this subject)
   const totalStudents = students.length;
-  const presentCount = activeSession?.presentCount ?? todayAttendance.filter(a => a.status === 'present').length;
-  const absentCount = activeSession?.absentCount ?? todayAttendance.filter(a => a.status === 'absent').length;
-  const notMarkedCount = activeSession?.notMarkedCount ?? todayAttendance.filter(a => a.status === 'not_marked').length;
-  const correctionCount = correctionRequests.filter(c => c.status === 'pending').length;
+  const presentCount = subjectRecords.filter(a => a.status === 'present').length;
+  const absentCount = subjectRecords.filter(a => a.status === 'absent').length;
+  const notMarkedCount = Math.max(0, totalStudents - presentCount - absentCount);
+  const correctionCount = correctionRequests.filter(c => c.status === 'pending' && (!c.sessionId || c.sessionId === activeSession?.id || enrolledStudentIds.has(c.studentId))).length;
   const lockedCount = students.filter(s => s.accountStatus === 'locked').length;
 
   const attendancePercentage = totalStudents > 0 ? Math.round((presentCount / totalStudents) * 100) : 0;
 
-  // Recent attendance stream
-  const recentPresent = todayAttendance
-    .filter(a => a.status === 'present' && a.markedAt)
-    .sort((a, b) => new Date(b.markedAt || 0).getTime() - new Date(a.markedAt || 0).getTime())
-    .slice(0, 6);
+  // Recent attendance stream - strictly enrolled students who scanned into this subject session
+  const recentPresent = useMemo(() => {
+    return subjectRecords
+      .filter(a => a.status === 'present' && a.markedAt)
+      .sort((a, b) => new Date(b.markedAt || 0).getTime() - new Date(a.markedAt || 0).getTime())
+      .slice(0, 6);
+  }, [subjectRecords]);
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -269,6 +277,27 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 <p className="text-xl font-bold text-rose-400 mt-1">{absentCount}</p>
               </div>
             </div>
+
+            {/* Session Time Validation Alert */}
+            {sessionValidationError && (
+              <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs space-y-1">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 font-bold">
+                    <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span>Scheduled Session Restriction</span>
+                  </div>
+                  <button
+                    onClick={clearSessionValidationError}
+                    className="text-amber-400/80 hover:text-amber-200 text-[11px] underline cursor-pointer"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+                <p className="text-[11px] text-amber-200/90 leading-relaxed pl-5">
+                  {sessionValidationError}
+                </p>
+              </div>
+            )}
 
             {/* Session Time & Security Token info */}
             <div className="p-4 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2">
