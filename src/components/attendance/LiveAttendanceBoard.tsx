@@ -42,10 +42,10 @@ export const LiveAttendanceBoard: React.FC = () => {
     record?: AttendanceRecord;
   } | null>(null);
 
-  // Map students with their today's attendance record strictly scoped to current active session
+  // Map students with their today's attendance record strictly scoped to current active session or date
   const studentRoster = useMemo(() => {
     return students.map(student => {
-      const record = activeSession ? todayAttendance.find(a => a.studentId === student.id && a.sessionId === activeSession.id) : undefined;
+      const record = todayAttendance.find(a => a.studentId === student.id);
       return {
         student,
         record: record || {

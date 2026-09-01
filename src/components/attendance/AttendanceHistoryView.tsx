@@ -40,9 +40,24 @@ export const AttendanceHistoryView: React.FC = () => {
     return sessions.find(s => s.date === selectedDate && (s.classId === currentClass.id || s.subject === currentClass.paperName));
   }, [sessions, selectedDate, currentClass]);
 
-  // Records for selected date
+  // Records for selected date (deduplicated by studentId, taking latest update)
   const recordsForDate = useMemo(() => {
-    return subjectAttendance.filter(a => a.date === selectedDate);
+    const map = new Map<string, typeof subjectAttendance[0]>();
+    subjectAttendance
+      .filter(a => a.date === selectedDate)
+      .forEach(rec => {
+        const existing = map.get(rec.studentId);
+        if (!existing) {
+          map.set(rec.studentId, rec);
+        } else {
+          const existingTime = new Date(existing.updatedAt || existing.markedAt || 0).getTime();
+          const recTime = new Date(rec.updatedAt || rec.markedAt || 0).getTime();
+          if (recTime >= existingTime) {
+            map.set(rec.studentId, rec);
+          }
+        }
+      });
+    return Array.from(map.values());
   }, [subjectAttendance, selectedDate]);
 
   const filteredRecords = useMemo(() => {

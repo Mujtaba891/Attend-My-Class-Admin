@@ -109,10 +109,25 @@ export const StudentCalendarView: React.FC<StudentCalendarViewProps> = ({
     return getHolidaysForMonth(year, month);
   }, [year, month]);
 
-  // Attendance records for the selected student
+  // Attendance records for the selected student (deduplicated by date, taking latest update)
   const studentAttendanceRecords = useMemo(() => {
     if (!currentStudent) return [];
-    return allAttendance.filter(a => a.studentId === currentStudent.id);
+    const map = new Map<string, AttendanceRecord>();
+    allAttendance
+      .filter(a => a.studentId === currentStudent.id)
+      .forEach(rec => {
+        const existing = map.get(rec.date);
+        if (!existing) {
+          map.set(rec.date, rec);
+        } else {
+          const existingTime = new Date(existing.updatedAt || existing.markedAt || 0).getTime();
+          const recTime = new Date(rec.updatedAt || rec.markedAt || 0).getTime();
+          if (recTime >= existingTime) {
+            map.set(rec.date, rec);
+          }
+        }
+      });
+    return Array.from(map.values());
   }, [allAttendance, currentStudent]);
 
   // Attendance lookup by date string (YYYY-MM-DD)
@@ -290,8 +305,8 @@ export const StudentCalendarView: React.FC<StudentCalendarViewProps> = ({
       holiday,
       scheduledPeriods,
       dayAttendanceRecords,
-      isPresent: dayAttendanceRecords.some(r => r.status === 'present'),
-      isAbsent: dayAttendanceRecords.some(r => r.status === 'absent'),
+      isPresent: dayAttendanceRecords.length > 0 && dayAttendanceRecords[0].status === 'present',
+      isAbsent: dayAttendanceRecords.length > 0 && dayAttendanceRecords[0].status === 'absent',
     };
   }, [selectedDayDate, currentStudent, attendanceByDate]);
 
@@ -704,8 +719,8 @@ export const StudentCalendarView: React.FC<StudentCalendarViewProps> = ({
               const isSelected = dayItem.dateStr === selectedDayDate;
               const records = attendanceByDate[dayItem.dateStr] || [];
               const isFutureDate = dayItem.dateStr > todayStr;
-              const isPresent = !isFutureDate && records.some(r => r.status === 'present');
-              const isAbsent = !isFutureDate && records.some(r => r.status === 'absent');
+              const isPresent = !isFutureDate && records.length > 0 && records[0].status === 'present';
+              const isAbsent = !isFutureDate && records.length > 0 && records[0].status === 'absent';
               const isToday = todayStr === dayItem.dateStr;
               const hasHoliday = !!dayItem.holiday;
 

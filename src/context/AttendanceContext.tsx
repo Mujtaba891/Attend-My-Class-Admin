@@ -818,12 +818,41 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
     );
   }, [sessions, todayStr, currentClass.id, adminProfile?.assignedSubject, adminProfile?.assignedSubjectType, adminProfile?.role]);
 
-  // Filter today's attendance records strictly for this active session AND enrolled students for this subject
+  // Filter today's attendance records strictly for this active session or today's date AND enrolled students for this subject
   const todayAttendance = useMemo(() => {
-    if (!activeSession) return [];
+    const targetDate = activeSession?.date || todayStr;
     const enrolledIds = new Set(students.map(s => s.id));
-    return allAttendance.filter(a => a.sessionId === activeSession.id && (enrolledIds.size === 0 || enrolledIds.has(a.studentId)));
-  }, [allAttendance, activeSession, students]);
+
+    const recordsByStudent = new Map<string, AttendanceRecord>();
+
+    allAttendance.forEach(a => {
+      const isForTargetDate = a.date === targetDate;
+      const isForActiveSession = activeSession ? a.sessionId === activeSession.id : false;
+
+      if (isForTargetDate || isForActiveSession) {
+        if (enrolledIds.size === 0 || enrolledIds.has(a.studentId)) {
+          const existing = recordsByStudent.get(a.studentId);
+          if (!existing) {
+            recordsByStudent.set(a.studentId, a);
+          } else {
+            if (a.status !== 'not_marked' && existing.status === 'not_marked') {
+              recordsByStudent.set(a.studentId, a);
+            } else if (activeSession && a.sessionId === activeSession.id && existing.status === 'not_marked') {
+              recordsByStudent.set(a.studentId, a);
+            } else {
+              const existingTime = new Date(existing.updatedAt || 0).getTime();
+              const newTime = new Date(a.updatedAt || 0).getTime();
+              if (newTime >= existingTime && a.status !== 'not_marked') {
+                recordsByStudent.set(a.studentId, a);
+              }
+            }
+          }
+        }
+      }
+    });
+
+    return Array.from(recordsByStudent.values());
+  }, [allAttendance, activeSession, students, todayStr]);
 
   // Format countdown string
   const sessionCountdown = useMemo(() => {
@@ -908,31 +937,38 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
 
     const student = students.find(s => s.id === studentId);
     const studentName = student ? student.fullName : studentId;
+    const sessionDate = activeSession.date;
     const recordId = `${activeSession.id}_${studentId}`;
+    const calDocId = `cal_${studentId}_${sessionDate.replace(/-/g, '_')}`;
+    const now = new Date().toISOString();
 
     let updatedList: AttendanceRecord[] = [];
-    let recordToSave: AttendanceRecord;
 
     setAllAttendance(prev => {
-      const existingIndex = prev.findIndex(r => r.id === recordId);
-      if (existingIndex >= 0) {
-        updatedList = prev.map((r, i) => {
-          if (i === existingIndex) {
-            recordToSave = {
+      const isTargetRecord = (r: AttendanceRecord) =>
+        r.id === recordId || r.id === calDocId || (r.studentId === studentId && r.date === sessionDate);
+
+      const hasMatch = prev.some(isTargetRecord);
+
+      if (hasMatch) {
+        updatedList = prev.map(r => {
+          if (isTargetRecord(r)) {
+            return {
               ...r,
+              sessionId: activeSession.id,
+              date: sessionDate,
               status,
               method,
-              notes: notes || r.notes,
-              markedAt: status === 'present' ? new Date().toISOString() : r.markedAt,
-              markedBy: adminProfile.name,
-              updatedAt: new Date().toISOString(),
+              notes: notes || r.notes || '',
+              markedAt: status === 'present' ? now : r.markedAt,
+              markedBy: adminProfile.name || 'Teacher',
+              updatedAt: now,
             };
-            return recordToSave;
           }
           return r;
         });
       } else {
-        recordToSave = {
+        const recordToSave: AttendanceRecord = {
           id: recordId,
           sessionId: activeSession.id,
           classId: activeSession.classId,
@@ -941,13 +977,13 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
           studentId,
           studentName,
           rollNumber: student?.rollNumber,
-          date: activeSession.date,
+          date: sessionDate,
           status,
           method,
-          notes,
-          markedAt: status === 'present' ? new Date().toISOString() : undefined,
-          markedBy: adminProfile.name,
-          updatedAt: new Date().toISOString(),
+          notes: notes || '',
+          markedAt: status === 'present' ? now : undefined,
+          markedBy: adminProfile.name || 'Teacher',
+          updatedAt: now,
         };
         updatedList = [recordToSave, ...prev];
       }
@@ -967,15 +1003,16 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
         studentUid: studentId,
         studentName,
         rollNumber: student?.rollNumber || '',
-        date: activeSession.date,
+        date: sessionDate,
         status,
         method,
         notes: notes || '',
-        markedAt: status === 'present' ? new Date().toISOString() : '',
-        markedBy: adminProfile.name,
-        updatedAt: new Date().toISOString(),
+        markedAt: status === 'present' ? now : '',
+        markedBy: adminProfile.name || 'Teacher',
+        updatedAt: now,
       };
       await setDoc(doc(db, 'attendance', recordId), sanitizedRecord, { merge: true });
+      await setDoc(doc(db, 'attendance', calDocId), { ...sanitizedRecord, id: calDocId }, { merge: true }).catch(() => {});
     } catch (e) {
       console.warn('Attendance save warning:', e);
     }
@@ -994,27 +1031,41 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
     if (!activeSession) return;
 
     const targets = targetIds || students.map(s => s.id);
+    const sessionDate = activeSession.date;
+    const targetSet = new Set<string>(targets);
+    const now = new Date().toISOString();
+
     let updatedList: AttendanceRecord[] = [];
 
     setAllAttendance(prev => {
-      const existingMap = new Map<string, AttendanceRecord>(prev.map(r => [r.id, r]));
+      const matchedStudentIds = new Set<string>();
+      prev.forEach(r => {
+        if (targetSet.has(r.studentId) && r.date === sessionDate) {
+          matchedStudentIds.add(r.studentId);
+        }
+      });
 
-      targets.forEach(stId => {
-        const recId = `${activeSession.id}_${stId}`;
-        const student = students.find(s => s.id === stId);
-        const existing = existingMap.get(recId);
-
-        if (existing) {
-          existingMap.set(recId, {
-            ...existing,
+      const updatedPrev = prev.map(r => {
+        if (targetSet.has(r.studentId) && r.date === sessionDate) {
+          return {
+            ...r,
+            sessionId: activeSession.id,
             status,
-            method: 'manual_admin',
-            markedAt: status === 'present' ? new Date().toISOString() : existing.markedAt,
-            markedBy: adminProfile.name,
-            updatedAt: new Date().toISOString(),
-          });
-        } else {
-          existingMap.set(recId, {
+            method: 'manual_admin' as AttendanceMethod,
+            markedAt: status === 'present' ? now : r.markedAt,
+            markedBy: adminProfile.name || 'Teacher',
+            updatedAt: now,
+          };
+        }
+        return r;
+      });
+
+      const newRecords: AttendanceRecord[] = [];
+      targetSet.forEach((stId: string) => {
+        if (!matchedStudentIds.has(stId)) {
+          const student = students.find(s => s.id === stId);
+          const recId = `${activeSession.id}_${stId}`;
+          newRecords.push({
             id: recId,
             sessionId: activeSession.id,
             classId: activeSession.classId,
@@ -1023,17 +1074,17 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
             studentId: stId,
             studentName: student ? student.fullName : stId,
             rollNumber: student?.rollNumber,
-            date: activeSession.date,
+            date: sessionDate,
             status,
             method: 'manual_admin',
-            markedAt: status === 'present' ? new Date().toISOString() : undefined,
-            markedBy: adminProfile.name,
-            updatedAt: new Date().toISOString(),
+            markedAt: status === 'present' ? now : undefined,
+            markedBy: adminProfile.name || 'Teacher',
+            updatedAt: now,
           });
         }
       });
 
-      updatedList = Array.from(existingMap.values());
+      updatedList = [...newRecords, ...updatedPrev];
       return updatedList;
     });
 
@@ -1043,9 +1094,9 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
       const batch = writeBatch(db);
       targets.forEach(stId => {
         const recId = `${activeSession.id}_${stId}`;
+        const calDocId = `cal_${stId}_${sessionDate.replace(/-/g, '_')}`;
         const student = students.find(s => s.id === stId);
-        const docRef = doc(db, 'attendance', recId);
-        batch.set(docRef, {
+        const recordData = {
           id: recId,
           sessionId: activeSession.id,
           classId: activeSession.classId,
@@ -1055,13 +1106,15 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
           studentUid: stId,
           studentName: student ? student.fullName : stId,
           rollNumber: student?.rollNumber || '',
-          date: activeSession.date,
+          date: sessionDate,
           status,
           method: 'manual_admin',
-          markedAt: status === 'present' ? new Date().toISOString() : '',
-          markedBy: adminProfile.name,
-          updatedAt: new Date().toISOString(),
-        }, { merge: true });
+          markedAt: status === 'present' ? now : '',
+          markedBy: adminProfile.name || 'Teacher',
+          updatedAt: now,
+        };
+        batch.set(doc(db, 'attendance', recId), recordData, { merge: true });
+        batch.set(doc(db, 'attendance', calDocId), { ...recordData, id: calDocId }, { merge: true });
       });
       await batch.commit();
     } catch (e) {
@@ -1143,71 +1196,89 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
     const studentName = student ? student.fullName : studentId;
     const subject = adminProfile?.assignedSubject || currentClass.paperName || 'Geology';
     const subjectType = adminProfile?.assignedSubjectType || 'MDC';
-    const recordDocId = `cal_${studentId}_${dateStr.replace(/-/g, '_')}`;
 
+    const matchedSession = (activeSession && activeSession.date === dateStr)
+      ? activeSession
+      : sessions.find(s => s.date === dateStr);
+
+    const targetSessionId = matchedSession?.id || `manual_session_${dateStr.replace(/-/g, '_')}`;
+    const recordDocId = matchedSession
+      ? `${matchedSession.id}_${studentId}`
+      : `cal_${studentId}_${dateStr.replace(/-/g, '_')}`;
+    const calDocId = `cal_${studentId}_${dateStr.replace(/-/g, '_')}`;
+
+    const now = new Date().toISOString();
     let updatedList: AttendanceRecord[] = [];
-    let recordToSave: AttendanceRecord;
 
     setAllAttendance(prev => {
-      const existingIdx = prev.findIndex(r => r.studentId === studentId && r.date === dateStr);
+      const isTargetRecord = (r: AttendanceRecord) =>
+        (r.studentId === studentId && r.date === dateStr) ||
+        r.id === recordDocId ||
+        r.id === calDocId ||
+        (matchedSession && r.sessionId === matchedSession.id && r.studentId === studentId);
+
       if (status === 'not_marked') {
-        if (existingIdx >= 0) {
-          updatedList = prev.filter((_, i) => i !== existingIdx);
-        } else {
-          updatedList = prev;
-        }
-      } else if (existingIdx >= 0) {
-        updatedList = prev.map((r, i) => {
-          if (i === existingIdx) {
-            recordToSave = {
-              ...r,
-              status,
-              method: 'manual_admin',
-              notes: notes || r.notes || `Manual calendar entry for ${dateStr}`,
-              markedAt: status === 'present' ? new Date().toISOString() : r.markedAt,
-              markedBy: adminProfile.name || 'Teacher',
-              updatedAt: new Date().toISOString(),
-            };
-            return recordToSave;
-          }
-          return r;
-        });
+        updatedList = prev.filter(r => !isTargetRecord(r));
       } else {
-        recordToSave = {
-          id: recordDocId,
-          sessionId: `manual_session_${dateStr.replace(/-/g, '_')}`,
-          classId: currentClass.id || 'core_class',
-          subject,
-          subjectType,
-          studentId,
-          studentName,
-          rollNumber: student?.rollNumber,
-          date: dateStr,
-          status,
-          method: 'manual_admin',
-          notes: notes || `Manual calendar entry for ${dateStr}`,
-          markedAt: status === 'present' ? new Date().toISOString() : undefined,
-          markedBy: adminProfile.name || 'Teacher',
-          updatedAt: new Date().toISOString(),
-        };
-        updatedList = [recordToSave, ...prev];
+        const hasMatch = prev.some(isTargetRecord);
+        if (hasMatch) {
+          updatedList = prev.map(r => {
+            if (isTargetRecord(r)) {
+              return {
+                ...r,
+                sessionId: targetSessionId,
+                date: dateStr,
+                status,
+                method: 'manual_admin' as AttendanceMethod,
+                notes: notes || r.notes || `Manual calendar entry for ${dateStr}`,
+                markedAt: status === 'present' ? now : r.markedAt,
+                markedBy: adminProfile.name || 'Teacher',
+                updatedAt: now,
+              };
+            }
+            return r;
+          });
+        } else {
+          const newRecord: AttendanceRecord = {
+            id: recordDocId,
+            sessionId: targetSessionId,
+            classId: matchedSession?.classId || currentClass.id || 'core_class',
+            subject: matchedSession?.subject || subject,
+            subjectType: matchedSession?.subjectType || subjectType,
+            studentId,
+            studentName,
+            rollNumber: student?.rollNumber,
+            date: dateStr,
+            status,
+            method: 'manual_admin',
+            notes: notes || `Manual calendar entry for ${dateStr}`,
+            markedAt: status === 'present' ? now : undefined,
+            markedBy: adminProfile.name || 'Teacher',
+            updatedAt: now,
+          };
+          updatedList = [newRecord, ...prev];
+        }
       }
       return updatedList;
     });
 
+    if (matchedSession) {
+      updateSessionCounters(matchedSession.id, updatedList);
+    }
+
     try {
       if (status === 'not_marked') {
-        await deleteDoc(doc(db, 'attendance', recordDocId)).catch(() => {});
-        if (activeSession) {
-          await deleteDoc(doc(db, 'attendance', `${activeSession.id}_${studentId}`)).catch(() => {});
+        await deleteDoc(doc(db, 'attendance', calDocId)).catch(() => {});
+        if (matchedSession) {
+          await deleteDoc(doc(db, 'attendance', `${matchedSession.id}_${studentId}`)).catch(() => {});
         }
       } else {
         const sanitizedRecord = {
           id: recordDocId,
-          sessionId: `manual_session_${dateStr.replace(/-/g, '_')}`,
-          classId: currentClass.id || 'core_class',
-          subject,
-          subjectType,
+          sessionId: targetSessionId,
+          classId: matchedSession?.classId || currentClass.id || 'core_class',
+          subject: matchedSession?.subject || subject,
+          subjectType: matchedSession?.subjectType || subjectType,
           studentId,
           studentUid: studentId,
           studentName,
@@ -1216,11 +1287,14 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
           status,
           method: 'manual_admin',
           notes: notes || `Manual calendar entry for ${dateStr}`,
-          markedAt: status === 'present' ? new Date().toISOString() : '',
+          markedAt: status === 'present' ? now : '',
           markedBy: adminProfile.name || 'Teacher',
-          updatedAt: new Date().toISOString(),
+          updatedAt: now,
         };
         await setDoc(doc(db, 'attendance', recordDocId), sanitizedRecord, { merge: true });
+        if (calDocId !== recordDocId) {
+          await setDoc(doc(db, 'attendance', calDocId), { ...sanitizedRecord, id: calDocId }, { merge: true }).catch(() => {});
+        }
       }
     } catch (e) {
       console.warn('Manual calendar date attendance save notice:', e);
@@ -1233,7 +1307,7 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
       targetName: studentName,
       details: `Manual Calendar Entry: Marked ${studentName} as ${status.toUpperCase()} for ${dateStr} by ${adminProfile.name}.`,
     });
-  }, [students, adminProfile, currentClass, activeSession, addActivityLog]);
+  }, [students, adminProfile, currentClass, activeSession, sessions, updateSessionCounters, addActivityLog]);
 
   // Start session manually with strict time window enforcement
   const startSessionManually = useCallback(async (): Promise<{ success: boolean; message?: string }> => {
@@ -2229,7 +2303,7 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
     const targetSubject = (adminProfile?.assignedSubject || '').trim().toLowerCase();
     const isGlobalAdmin = adminProfile?.role === 'admin' && (!targetSubject || targetSubject === 'all' || targetSubject === 'all subjects');
 
-    const studentRecords = allAttendance.filter(a => {
+    const rawStudentRecords = allAttendance.filter(a => {
       if (a.studentId !== studentId) return false;
       if (isGlobalAdmin) return true;
 
@@ -2251,12 +2325,28 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
       return !targetSubject;
     });
 
-    const totalClasses = Math.max(1, studentRecords.length);
+    // Deduplicate records by date, taking the latest updated status per date
+    const recordsByDate = new Map<string, AttendanceRecord>();
+    rawStudentRecords.forEach(a => {
+      const existing = recordsByDate.get(a.date);
+      if (!existing) {
+        recordsByDate.set(a.date, a);
+      } else {
+        const existingTime = new Date(existing.updatedAt || existing.markedAt || 0).getTime();
+        const aTime = new Date(a.updatedAt || a.markedAt || 0).getTime();
+        if (aTime >= existingTime) {
+          recordsByDate.set(a.date, a);
+        }
+      }
+    });
+
+    const studentRecords = Array.from(recordsByDate.values());
+    const totalClasses = studentRecords.length;
     const present = studentRecords.filter(a => a.status === 'present').length;
     const absent = studentRecords.filter(a => a.status === 'absent').length;
     const notMarked = studentRecords.filter(a => a.status === 'not_marked').length;
-    const percentage = studentRecords.length > 0 ? Math.round((present / totalClasses) * 100) : 100;
-    const isDefaulter = studentRecords.length > 0 && percentage < 75;
+    const percentage = totalClasses > 0 ? Math.round((present / totalClasses) * 100) : 100;
+    const isDefaulter = totalClasses > 0 && percentage < 75;
 
     return {
       totalClasses,
