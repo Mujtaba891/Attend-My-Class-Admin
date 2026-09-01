@@ -145,6 +145,9 @@ export interface CorrectionRequest {
   email: string;
   attendanceDate: string;
   sessionId: string;
+  subject?: string;
+  subjectType?: string;
+  classId?: string;
   currentStatus: 'absent' | 'not_marked';
   requestedStatus: 'present';
   reason: string;

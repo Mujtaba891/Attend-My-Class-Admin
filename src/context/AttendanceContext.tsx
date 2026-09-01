@@ -87,7 +87,7 @@ interface AttendanceContextType {
   importStudents: (newStudentsList: Omit<Student, 'id' | 'createdAt' | 'updatedAt'>[]) => void;
   
   // Correction Requests
-  createCorrectionRequest: (request: Omit<CorrectionRequest, 'id' | 'status' | 'requestedAt'>) => void;
+  createCorrectionRequest: (request: Omit<CorrectionRequest, 'id' | 'status' | 'submittedAt'>) => void;
   approveCorrectionRequest: (requestId: string, decisionNotes?: string) => void;
   rejectCorrectionRequest: (requestId: string, decisionNotes?: string) => void;
   getStudentMonthlyCorrectionCount: (studentId: string, monthKey?: string) => number;
@@ -2135,7 +2135,7 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
   );
 
   // Create correction request
-  const createCorrectionRequest = useCallback(async (reqData: Omit<CorrectionRequest, 'id' | 'status' | 'requestedAt'>) => {
+  const createCorrectionRequest = useCallback(async (reqData: Omit<CorrectionRequest, 'id' | 'status' | 'submittedAt'>) => {
     const id = `cr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const newReq: CorrectionRequest = {
       ...reqData,
@@ -2181,18 +2181,30 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
     );
 
     let updatedList: AttendanceRecord[] = [];
+    const targetSubject = req.subject || adminProfile?.assignedSubject || currentClass.paperName || 'Geology';
+    const targetSubjectType = req.subjectType || adminProfile?.assignedSubjectType || 'MDC';
+    const targetClassId = req.classId || currentClass.id || 'core_class';
+    const recId = `${req.sessionId || `session_${req.attendanceDate}`}_${req.studentId}`;
+    const calDocId = `cal_${req.studentId}_${req.attendanceDate.replace(/-/g, '_')}`;
+
     setAllAttendance(prev => {
-      const matchIndex = prev.findIndex(a => a.studentId === req.studentId && a.date === req.attendanceDate);
-      if (matchIndex >= 0) {
-        updatedList = prev.map((a, i) => {
-          if (i === matchIndex) {
+      const isMatch = (a: AttendanceRecord) =>
+        (a.studentId === req.studentId && a.date === req.attendanceDate) || a.id === recId || a.id === calDocId;
+
+      const hasMatch = prev.some(isMatch);
+      if (hasMatch) {
+        updatedList = prev.map(a => {
+          if (isMatch(a)) {
             return {
               ...a,
+              subject: targetSubject,
+              subjectType: targetSubjectType,
+              classId: targetClassId,
               status: 'present',
               method: 'correction_approval',
               notes: `Correction approved: ${decisionNotes || req.reason}`,
               markedAt: now,
-              markedBy: adminProfile.name,
+              markedBy: adminProfile.name || 'Teacher',
               updatedAt: now,
             };
           }
@@ -2200,9 +2212,11 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
         });
       } else {
         const newRec: AttendanceRecord = {
-          id: `${req.sessionId || `session_${req.attendanceDate}`}_${req.studentId}`,
+          id: recId,
           sessionId: req.sessionId || `session_${req.attendanceDate}`,
-          classId: 'core_class',
+          classId: targetClassId,
+          subject: targetSubject,
+          subjectType: targetSubjectType,
           studentId: req.studentId,
           studentName: req.studentName,
           rollNumber: req.rollNumber,
@@ -2210,7 +2224,7 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
           status: 'present',
           method: 'correction_approval',
           markedAt: now,
-          markedBy: adminProfile.name,
+          markedBy: adminProfile.name || 'Teacher',
           notes: `Correction approved: ${decisionNotes || req.reason}`,
           updatedAt: now,
         };
@@ -2223,15 +2237,16 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
       await updateDoc(doc(db, 'correctionRequests', requestId), {
         status: 'approved',
         decidedAt: now,
-        decidedBy: adminProfile.name,
+        decidedBy: adminProfile.name || 'Teacher',
         decisionNotes: decisionNotes || 'Attendance correction verified and approved.',
       });
 
-      const recId = `${req.sessionId || `session_${req.attendanceDate}`}_${req.studentId}`;
-      await setDoc(doc(db, 'attendance', recId), {
+      const sanitizedRecord = {
         id: recId,
         sessionId: req.sessionId || `session_${req.attendanceDate}`,
-        classId: 'core_class',
+        classId: targetClassId,
+        subject: targetSubject,
+        subjectType: targetSubjectType,
         studentId: req.studentId,
         studentUid: req.studentId,
         studentName: req.studentName,
@@ -2240,10 +2255,13 @@ const parseTimeToTodayEpoch = (timeStr: string) => {
         status: 'present',
         method: 'correction_approval',
         markedAt: now,
-        markedBy: adminProfile.name,
+        markedBy: adminProfile.name || 'Teacher',
         notes: `Correction approved: ${decisionNotes || req.reason}`,
         updatedAt: now,
-      }, { merge: true });
+      };
+
+      await setDoc(doc(db, 'attendance', recId), sanitizedRecord, { merge: true });
+      await setDoc(doc(db, 'attendance', calDocId), { ...sanitizedRecord, id: calDocId }, { merge: true }).catch(() => {});
     } catch (e) {
       console.warn('Approve correction request write notice:', e);
     }

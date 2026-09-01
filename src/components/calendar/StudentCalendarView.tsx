@@ -24,6 +24,7 @@ import {
 import { useAttendance } from '../../context/AttendanceContext';
 import { useAuth } from '../../context/AuthContext';
 import { Student, AttendanceRecord } from '../../types';
+import { SubmitCorrectionModal } from '../corrections/SubmitCorrectionModal';
 import {
   MASTER_TIMETABLE_SLOTS,
   SECTION_ALLOCATIONS,
@@ -73,6 +74,7 @@ export const StudentCalendarView: React.FC<StudentCalendarViewProps> = ({
   const [selectedDayDate, setSelectedDayDate] = useState<string>(() => formatDateToLocalISO(new Date()));
   const [subjectFilter, setSubjectFilter] = useState<string>('all');
   const [isTimetableModalOpen, setIsTimetableModalOpen] = useState(false);
+  const [isCorrectionModalOpen, setIsCorrectionModalOpen] = useState(false);
   const [activeModalTab, setActiveModalTab] = useState<'timetable' | 'vac_aec' | 'holidays'>('timetable');
 
   // Find active student
@@ -953,6 +955,17 @@ export const StudentCalendarView: React.FC<StudentCalendarViewProps> = ({
                     )}
                   </div>
                 )}
+
+                {/* Submit Attendance Correction Trigger Button */}
+                {currentStudent && (
+                  <button
+                    onClick={() => setIsCorrectionModalOpen(true)}
+                    className="w-full py-2.5 px-3 rounded-xl bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-500/40 text-cyan-200 text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm hover:border-cyan-400"
+                  >
+                    <BookOpen className="w-4 h-4 text-cyan-400 shrink-0" />
+                    <span>Request Correction for {selectedDayInfo.dateStr}</span>
+                  </button>
+                )}
               </div>
             )}
 
@@ -1253,6 +1266,15 @@ export const StudentCalendarView: React.FC<StudentCalendarViewProps> = ({
             )}
           </div>
         </div>
+      )}
+      {/* Student Subject Correction Modal */}
+      {currentStudent && (
+        <SubmitCorrectionModal
+          isOpen={isCorrectionModalOpen}
+          onClose={() => setIsCorrectionModalOpen(false)}
+          student={currentStudent}
+          defaultDate={selectedDayInfo.dateStr}
+        />
       )}
     </div>
   );

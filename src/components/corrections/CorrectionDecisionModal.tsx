@@ -82,7 +82,7 @@ export const CorrectionDecisionModal: React.FC<CorrectionDecisionModalProps> = (
             <div>
               <h4 className="text-sm font-bold text-slate-100">{request.studentName}</h4>
               <span className="text-xs font-mono text-slate-400">
-                {request.rollNumber || request.studentId} • Geology Class
+                {request.rollNumber || request.studentId} • {request.subject || 'Geology'} Class
               </span>
             </div>
             <div className="text-right text-xs">
@@ -91,7 +91,7 @@ export const CorrectionDecisionModal: React.FC<CorrectionDecisionModalProps> = (
             </div>
           </div>
 
-          <div className="p-3 rounded-lg bg-slate-900 border border-slate-800 text-xs">
+          <div className="text-xs space-y-1">
             <div className="flex items-center gap-2 text-slate-400 mb-1">
               <Calendar className="w-3.5 h-3.5 text-slate-500" />
               <span>Target Class Date:</span>

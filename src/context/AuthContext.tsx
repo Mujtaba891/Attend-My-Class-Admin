@@ -33,7 +33,6 @@ async function enrichCRProfileWithFirestoreData(email: string, baseProfile: Admi
   if (!cleanEmail) return sanitizeFirestoreData(enriched);
 
   const isMasterAdmin = cleanEmail === 'mujtabaalam010@gmail.com';
-  const isFacultyAccount = isMasterAdmin || baseProfile.role === 'teacher' || baseProfile.role === 'admin';
 
   try {
     // 1. Fetch CR delegations from 'crDelegations' collection
@@ -54,14 +53,29 @@ async function enrichCRProfileWithFirestoreData(email: string, baseProfile: Admi
       studentData = studentSnap.docs[0].data();
     }
 
-    // CASE A: USER HAS ACTIVE CR DELEGATION(S) IN 'crDelegations' COLLECTION
-    if (!isFacultyAccount && crDelegationsList.length > 0) {
+    const hasCRDelegation = crDelegationsList.length > 0;
+    const isStudentCR = studentData?.isCR === true || studentData?.admin === true;
+    const isStudentUser = !studentSnap.empty;
+    const isCRRequested = baseProfile.role === 'cr' || baseProfile.department === 'Student Academic Council';
+
+    // IF USER IS MASTER ADMIN -> ALWAYS ADMIN
+    if (isMasterAdmin) {
+      enriched = {
+        ...baseProfile,
+        role: 'admin',
+        permissions: ['all'],
+      };
+      return sanitizeFirestoreData(enriched);
+    }
+
+    // IF USER HAS CR DELEGATION, OR IS CR STUDENT, OR LOGGED IN WITH ROLE 'cr' -> SET AS CR
+    if (hasCRDelegation || isStudentCR || isCRRequested) {
       const name = studentData?.fullName || studentData?.name || (baseProfile.name && baseProfile.name !== 'Faculty User' ? baseProfile.name : '') || 'Class Representative';
       const avatarUrl = studentData?.photoUrl || studentData?.avatarUrl || baseProfile.avatarUrl;
       const semester = studentData?.semester || baseProfile.semester || 'Semester I';
       const section = studentData?.section || baseProfile.section || 'A';
       const rollNumber = studentData?.rollNumber || studentData?.studentId || baseProfile.rollNumber || 'CR-2026-01';
-      const studentMajor = studentData?.major || studentData?.course || 'Geology';
+      const studentMajor = studentData?.major || studentData?.course || baseProfile.assignedSubject || 'Geology';
       const course = studentData?.course || studentData?.major || 'B.Sc. Academic Program';
 
       const primaryDel = crDelegationsList[0];
@@ -91,15 +105,21 @@ async function enrichCRProfileWithFirestoreData(email: string, baseProfile: Admi
         assignedSubjectType: activeSubjectType as any,
         assignedClass: activeClass,
         assignedRoom: activeRoom,
-        assignments: assignments,
+        assignments: assignments.length > 0 ? assignments : [{
+          id: `cr_assign_${Date.now()}`,
+          subject: activeSubject,
+          subjectType: activeSubjectType as any,
+          className: activeClass,
+          room: activeRoom
+        }],
         role: 'cr',
         permissions: ['view_sessions', 'mark_live_attendance', 'view_board', 'classroom_display', 'view_students'],
       };
       return sanitizeFirestoreData(enriched);
     }
 
-    // CASE B: USER IS A STUDENT (in 'students' collection) OR WAS CR, BUT HAS NO ACTIVE CR DELEGATION
-    if (!isFacultyAccount && (!studentSnap.empty || baseProfile.role === 'cr' || baseProfile.department === 'Student Academic Council')) {
+    // IF USER IS A REGISTERED STUDENT
+    if (isStudentUser) {
       const name = studentData?.fullName || studentData?.name || baseProfile.name || 'Student';
       const semester = studentData?.semester || baseProfile.semester || 'Semester I';
       const section = studentData?.section || baseProfile.section || 'A';
@@ -120,20 +140,20 @@ async function enrichCRProfileWithFirestoreData(email: string, baseProfile: Admi
         assignedClass: `${semester} - Section ${section}`,
         assignedRoom: 'Block C room no 30',
         assignments: [],
-        permissions: [], // NO TEACHER/ADMIN PERMISSIONS FOR UNASSIGNED STUDENTS
+        permissions: ['view_sessions', 'mark_live_attendance', 'view_board', 'classroom_display', 'view_students'],
       };
       return sanitizeFirestoreData(enriched);
     }
 
-    // CASE C: TEACHER / FACULTY PROFILE (Non-student users or faculty accounts)
+    // OTHERWISE -> TEACHER / FACULTY PROFILE
     const { rollNumber, semester, section, ...rest } = baseProfile as any;
     enriched = {
       ...rest,
-      role: 'teacher',
+      role: baseProfile.role === 'admin' ? 'admin' : 'teacher',
       designation: baseProfile.designation || 'Assistant Professor / Faculty Member',
       employeeId: baseProfile.employeeId || 'GEO-FAC-01',
       officeLocation: baseProfile.officeLocation || 'Block C, Room 30',
-      permissions: ['all', 'manage_students', 'manage_sessions', 'lock_accounts', 'approve_corrections', 'view_reports', 'manage_devices', 'system_config', 'mark_attendance', 'view_students'],
+      permissions: baseProfile.role === 'admin' ? ['all'] : ['all', 'manage_students', 'manage_sessions', 'lock_accounts', 'approve_corrections', 'view_reports', 'manage_devices', 'system_config', 'mark_attendance', 'view_students'],
     };
   } catch (err) {
     console.warn('CR Profile enrichment notice:', err);
@@ -373,12 +393,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const crSnap = await getDocs(crQ);
       const hasCRDelegation = !crSnap.empty;
 
-      if (!isMasterAdmin && (targetRole === 'teacher' || (!targetRole && (isRegisteredStudent || hasCRDelegation))) && (isRegisteredStudent || hasCRDelegation)) {
+      if (!isMasterAdmin && targetRole === 'teacher' && (isRegisteredStudent || hasCRDelegation)) {
         throw new Error(`Access Denied: ${cleanEmail} is registered as a Student in the institutional database. Students cannot log in as Faculty/Teacher.`);
-      }
-
-      if (targetRole === 'cr' && !hasCRDelegation) {
-        throw new Error(`Access Denied: No active Class Representative (CR) delegation found in system for ${cleanEmail}. Please ask your faculty member to grant CR delegation.`);
       }
 
       const cred = await signInWithEmailAndPassword(auth, email, pass);
@@ -415,9 +431,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } as any;
         
         const enriched = await enrichCRProfileWithFirestoreData(email, adminData);
-        if (targetRole === 'cr' && enriched.role !== 'cr') {
-          throw new Error(`Access Denied: No active Class Representative (CR) delegation found in system for ${cleanEmail}. Please ask your faculty member to grant CR delegation.`);
-        }
         const cleanPayload = sanitizeFirestoreData({ ...enriched, role: enriched.role, lastLoginAt: new Date().toISOString() });
         await setDoc(userDocRef, cleanPayload, { merge: true });
         if (enriched.role === 'admin' || enriched.role === 'teacher') {
@@ -466,10 +479,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (!isMasterAdmin && payload.role === 'teacher' && (isRegisteredStudent || hasCRDelegation)) {
         throw new Error(`Access Denied: ${payload.email} is registered as a Student in the institutional database. Students are strictly prohibited from logging in as Faculty/Teacher.`);
-      }
-
-      if (payload.role === 'cr' && !hasCRDelegation) {
-        throw new Error(`Access Denied: No active Class Representative (CR) delegation found in system for ${payload.email}. Please ask your faculty member to grant CR delegation.`);
       }
 
       // 1. Authenticate with Firebase Auth
@@ -561,9 +570,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } as any;
 
       profileData = await enrichCRProfileWithFirestoreData(payload.email, profileData);
-      if (payload.role === 'cr' && profileData.role !== 'cr') {
-        throw new Error(`Access Denied: No active Class Representative (CR) delegation found in system for ${payload.email}. Please ask your faculty member to grant CR delegation.`);
-      }
 
       // 3. Persist to Firestore: /users/{uid} and /admins/{uid}
       try {

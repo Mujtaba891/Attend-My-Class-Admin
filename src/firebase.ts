@@ -5,6 +5,7 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { 
   getFirestore, 
+  initializeFirestore,
   doc, 
   getDocFromServer,
   Firestore
@@ -14,8 +15,16 @@ import firebaseConfig from '../firebase-applet-config.json';
 // Initialize Firebase App instance singleton
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
-// Initialize Firestore with configured database ID as mandated by skill
-export const db: Firestore = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+// Initialize Firestore with long polling to prevent 10s timeout in iframe sandboxes
+export const db: Firestore = (() => {
+  try {
+    return initializeFirestore(app, {
+      experimentalForceLongPolling: true,
+    }, firebaseConfig.firestoreDatabaseId);
+  } catch (_err) {
+    return getFirestore(app, firebaseConfig.firestoreDatabaseId);
+  }
+})();
 
 // Initialize Auth
 export const auth = getAuth(app);
